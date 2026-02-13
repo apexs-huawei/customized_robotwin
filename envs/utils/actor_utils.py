@@ -21,10 +21,11 @@ class Actor:
         "orientation": "orientation_point",
     }
 
-    def __init__(self, actor: Entity, actor_data: dict, mass=0.01):
+    def __init__(self, actor: Entity, actor_data: dict, mass=0.01, scale=None):
         self.actor = actor
         self.config = actor_data
         self.set_mass(mass)
+        self.scale = scale
 
     def get_point(
         self,
@@ -105,7 +106,7 @@ class ArticulationActor(Actor):
         "orientation": "orientation_point",
     }
 
-    def __init__(self, actor: PhysxArticulation, actor_data: dict, mass=0.01):
+    def __init__(self, actor: PhysxArticulation, actor_data: dict, mass=0.01, scale=None):
         assert isinstance(actor, PhysxArticulation), "ArticulationActor must be a Articulation"
 
         self.actor = actor
@@ -113,7 +114,8 @@ class ArticulationActor(Actor):
 
         self.link_dict = self.get_link_dict()
         self.set_mass(mass)
-
+        self.scale = scale
+        
     def get_link_dict(self) -> dict[str, PhysxArticulationLinkComponent]:
         link_dict = {}
         for link in self.actor.get_links():

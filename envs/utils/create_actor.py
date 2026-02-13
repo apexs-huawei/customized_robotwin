@@ -534,7 +534,10 @@ def create_actor(
     try:
         with open(json_file_path, "r") as file:
             model_data = json.load(file)
-        scale = model_data["scale"]
+            try:
+                scale = model_data["scale"]
+            except:
+                scale = scale
     except:
         model_data = None
 
@@ -556,7 +559,7 @@ def create_actor(
     mesh = builder.build(name=modelname)
     mesh.set_name(modelname)
     mesh.set_pose(pose)
-    return Actor(mesh, model_data)
+    return Actor(mesh, model_data, scale=scale)
 
 
 # create urdf model
@@ -581,7 +584,7 @@ def create_urdf_obj(scene, pose: sapien.Pose, modelname: str, scale=1.0, fix_roo
 
     object.set_root_pose(pose)
     object.set_name(modelname)
-    return ArticulationActor(object, model_data)
+    return ArticulationActor(object, model_data, scale=None)
 
 
 def create_sapien_urdf_obj(
@@ -651,4 +654,4 @@ def create_sapien_urdf_obj(
             bounding_box = json.load(open(bounding_box_file, "r", encoding="utf-8"))
             model_data["extents"] = (np.array(bounding_box["max"]) - np.array(bounding_box["min"])).tolist()
     object.set_name(modelname)
-    return ArticulationActor(object, model_data)
+    return ArticulationActor(object, model_data, scale=None)

@@ -274,6 +274,22 @@ def create_cluttered_urdf_obj(scene, pose: sapien.Pose, modelname: str, scale=1.
     object.set_pose(pose)
 
     if isinstance(object, sapien.physx.PhysxArticulation):
-        return ArticulationActor(object, None)
+        return ArticulationActor(object, None, scale=urdf_mesh_scales(modeldir / "model.urdf"))
     else:
-        return Actor(object, None)
+        return Actor(object, None, scale=urdf_mesh_scales(modeldir / "model.urdf"))
+
+from pathlib import Path
+import xml.etree.ElementTree as ET
+
+def urdf_mesh_scales(urdf_path: str | Path):
+    urdf_path = Path(urdf_path)
+    root = ET.parse(urdf_path).getroot()
+    out = []
+    for tag in ("visual", "collision"):
+        for node in root.findall(f".//{tag}//geometry//mesh"):
+            fname = node.get("filename") or node.get("file")  # some URDFs use file
+            scale = node.get("scale") or "1 1 1"
+            scale_xyz = tuple(float(x) for x in scale.split())
+            out.append((tag, fname, scale_xyz))
+    out = set(out)
+    return next(iter(out))[2]
