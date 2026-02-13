@@ -9,6 +9,9 @@ from mplib.sapien_utils import SapienPlanner, SapienPlanningWorld
 import transforms3d as t3d
 import envs._GLOBAL_CONFIGS as CONFIGS
 
+from pathlib import Path
+from typing import Optional, Sequence
+import trimesh
 
 try:
     # ********************** CuroboPlanner (optional) **********************
@@ -21,6 +24,7 @@ try:
         MotionGenPlanConfig,
         PoseCostMetric,
     )
+    from curobo.geom.types import WorldConfig, Mesh
     from curobo.util import logger
     import torch
     import yaml
@@ -35,6 +39,7 @@ try:
             active_joints_name,
             all_joints,
             yml_path=None,
+            collision_cache: dict = {"mesh": 1, "obb": 1},
         ):
             super().__init__()
             ta.setup_logging("CRITICAL")  # hide logging
@@ -57,35 +62,39 @@ try:
             if True:
                 world_config = {
                     "cuboid": {
-                        "table": {
-                            "dims": [0.7, 2, 0.04],  # x, y, z
-                            "pose": [
-                                self.robot_origion_pose.p[1],
-                                0.0,
-                                0.74 - self.robot_origion_pose.p[2],
-                                1,
-                                0,
-                                0,
-                                0.0,
-                            ],  # x, y, z, qw, qx, qy, qz
-                        },
-                    }
+                        # "table": {
+                        #     "dims": [0.7, 2, 0.04],  # x, y, z
+                        #     "pose": [
+                        #         self.robot_origion_pose.p[1],
+                        #         0.0,
+                        #         0.74 - self.robot_origion_pose.p[2],
+                        #         1,
+                        #         0,
+                        #         0,
+                        #         0.0,
+                        #     ],  # x, y, z, qw, qx, qy, qz
+                        # },
+                    },
+                    "mesh": {}
                 }
             motion_gen_config = MotionGenConfig.load_from_robot_config(
                 self.yml_path,
                 world_config,
                 interpolation_dt=1 / 250,
                 num_trajopt_seeds=1,
+                collision_cache=collision_cache,
             )
 
             self.motion_gen = MotionGen(motion_gen_config)
             self.motion_gen.warmup()
+            
             motion_gen_config = MotionGenConfig.load_from_robot_config(
                 self.yml_path,
                 world_config,
                 interpolation_dt=1 / 250,
                 num_trajopt_seeds=1,
                 num_graph_seeds=1,
+                collision_cache=collision_cache,
             )
             self.motion_gen_batch = MotionGen(motion_gen_config)
             self.motion_gen_batch.warmup(batch=CONFIGS.ROTATE_NUM)
@@ -139,8 +148,13 @@ try:
                     hold_vec_weight=self.motion_gen.tensor_args.to_device(constraint_pose),
                 )
                 plan_config.pose_cost_metric = pose_cost_metric
-
             result = self.motion_gen.plan_single(start_joint_states, goal_pose_of_ee, plan_config)
+
+            # ------------------------------------------
+            if result.success.item() == False:
+                print("success:", bool(result.success.item()))
+                print("status:", result.status)
+            # ------------------------------------------
 
             # output
             res_result = dict()
@@ -269,6 +283,186 @@ try:
             result_p = wRb.T @ rel_p
             result_q = t3d.quaternions.mat2quat(wRb.T @ wRt)
             return result_p, result_q
+        
+        def update_world(self, collision_dict, arms_tag):
+            """Update CuRobo Collision World Model with new collision objects"""
+
+            collision_dict = self.collision_dict_world_to_arm_base(collision_dict, arms_tag)
+            world_config = WorldConfig.from_dict(collision_dict)
+
+            for gen in [self.motion_gen, self.motion_gen_batch]:
+                gen.update_world(world_config)
+            
+            # world_model = self.motion_gen.world_coll_checker.world_model
+            # self.visualize_world_config(world_model)
+            
+        def world_to_arm_base_pose(self, world_pose, arms_tag=None):
+            """
+            Convert a pose from world frame to arm base frame.
+
+            Args:
+                world_pose: either
+                    - object with .p and .q
+                    - or iterable [x, y, z, qw, qx, qy, qz]
+                arms_tag: "left" or "right" (required for aloha-agilex patch)
+
+            Returns:
+                (p, q) where:
+                    p: np.ndarray (3,)
+                    q: np.ndarray (4,) quaternion
+            """
+            import numpy as np
+            import transforms3d as t3d
+
+            # --- Extract world pose ---
+            if hasattr(world_pose, "p") and hasattr(world_pose, "q"):
+                world_target_pose = np.concatenate([
+                    np.array(world_pose.p),
+                    np.array(world_pose.q),
+                ])
+            else:
+                world_target_pose = np.array(world_pose)
+
+            # --- World base pose ---
+            world_base_pose = np.concatenate([
+                np.array(self.robot_origion_pose.p),
+                np.array(self.robot_origion_pose.q),
+            ])
+
+            # --- World → robot base ---
+            target_pose_p, target_pose_q = self._trans_from_world_to_base(
+                world_base_pose,
+                world_target_pose,
+            )
+
+            # --- Frame bias / aloha patch ---
+            if "aloha-agilex" not in self.yml_path:
+                target_pose_p = target_pose_p + np.array(self.frame_bias)
+
+            else: # patch for aloha-agilex
+                T_target = t3d.affines.compose(
+                    target_pose_p,
+                    t3d.quaternions.quat2mat(target_pose_q),
+                    [1, 1, 1],
+                )
+
+                T_bias = t3d.affines.compose(
+                    self.frame_bias,
+                    np.eye(3),
+                    [1, 1, 1],
+                )
+
+                if arms_tag == "left":
+                    rot = t3d.axangles.axangle2mat([0, 0, 1], -0.02)
+                elif arms_tag == "right":
+                    rot = t3d.axangles.axangle2mat([0, 0, 1], -0.01)
+                else:
+                    raise ValueError(f"Invalid arms_tag: {arms_tag}")
+
+                T_rot = t3d.affines.compose([0, 0, 0], rot, [1, 1, 1])
+                T_new = T_rot @ T_bias @ T_target
+
+                target_pose_p = T_new[:3, 3]
+                target_pose_q = t3d.quaternions.mat2quat(T_new[:3, :3])
+
+            return target_pose_p, target_pose_q
+
+        def collision_dict_world_to_arm_base(self, collision_dict: dict, arms_tag: str | None = None) -> dict:
+            """
+            Returns a copy of collision_dict where every obstacle pose is converted from world frame
+            to arm base frame using self.world_to_arm_base_pose(...).
+
+            Expects each obstacle to have a 'pose' field as [x,y,z,qw,qx,qy,qz].
+            """
+            import copy
+            import numpy as np
+
+            out = copy.deepcopy(collision_dict)
+
+            # helper: convert a flat pose list -> flat pose list
+            def _convert_pose_list(pose_list):
+                p, q = self.world_to_arm_base_pose(pose_list, arms_tag=arms_tag)
+                return list(np.asarray(p).tolist()) + list(np.asarray(q).tolist())
+
+            # meshes
+            if "mesh" in out and out["mesh"]:
+                for name, md in out["mesh"].items():
+                    if "pose" in md and md["pose"] is not None:
+                        md["pose"] = _convert_pose_list(md["pose"])
+
+            # cuboids
+            if "cuboid" in out and out["cuboid"]:
+                for name, cd in out["cuboid"].items():
+                    if "pose" in cd and cd["pose"] is not None:
+                        cd["pose"] = _convert_pose_list(cd["pose"])
+
+            # add other primitives here if you use them (sphere/capsule/cylinder/etc.)
+
+            return out
+        
+        def visualize_world_config(self, world_model):
+            """Visualize CuRobo Collision World Model: motion_gen.world_coll_checker.world_model"""
+            from scipy.spatial.transform import Rotation
+
+            scene = trimesh.Scene()
+            
+            # Add all cuboids
+            for cuboid in world_model.cuboid:
+                # Create box
+                box = trimesh.creation.box(extents=cuboid.dims)
+                
+                # Create transformation matrix
+                pose = cuboid.pose
+                transform = np.eye(4)
+                
+                # Rotation from quaternion [qw, qx, qy, qz]
+                quat = [pose[3], pose[4], pose[5], pose[6]]
+                rot = Rotation.from_quat([quat[1], quat[2], quat[3], quat[0]])  # scipy: [qx,qy,qz,qw]
+                transform[:3, :3] = rot.as_matrix()
+                
+                # Translation
+                transform[:3, 3] = [pose[0], pose[1], pose[2]]
+                
+                # Apply transform
+                box.apply_transform(transform)
+                
+                # Set color (red for collision objects)
+                box.visual.face_colors = [255, 0, 0, 100]  # Red, semi-transparent
+                
+                # Add to scene
+                scene.add_geometry(box, node_name=cuboid.name)
+            
+            # Add all meshes
+            for mesh_obj in world_model.mesh:
+                try:
+                    # Load mesh from file
+                    if mesh_obj.file_path:
+                        mesh = trimesh.load(mesh_obj.file_path, force='mesh')
+                        
+                        # Apply scale
+                        mesh.apply_scale(mesh_obj.scale)
+                        
+                        # Apply pose
+                        pose = mesh_obj.pose
+                        transform = np.eye(4)
+                        
+                        quat = [pose[3], pose[4], pose[5], pose[6]]
+                        rot = Rotation.from_quat([quat[1], quat[2], quat[3], quat[0]])
+                        transform[:3, :3] = rot.as_matrix()
+                        transform[:3, 3] = [pose[0], pose[1], pose[2]]
+                        
+                        mesh.apply_transform(transform)
+
+                        # Set color (blue for meshes)
+                        mesh.visual.face_colors = [0, 0, 255, 100]
+                        
+                        scene.add_geometry(mesh, node_name=mesh_obj.name)
+                        
+                except Exception as e:
+                    print(f"Could not load mesh {mesh_obj.name}: {e}")
+                
+            scene.show()
+
     
 except Exception as e:
     print('[planner.py]: Something wrong happened when importing CuroboPlanner! Please check if Curobo is installed correctly. If the problem still exists, you can install Curobo from https://github.com/NVlabs/curobo manually.')

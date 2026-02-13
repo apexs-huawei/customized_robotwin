@@ -2,12 +2,14 @@ import json
 import re
 from typing import List, Dict, Any
 import os
+from pathlib import Path
 import argparse
 import random
 import yaml
 
 current_file_path = os.path.abspath(__file__)
 parent_directory = os.path.dirname(current_file_path)
+bench_root = Path(os.environ["BENCH_ROOT"])
 
 
 def extract_placeholders(instruction: str) -> List[str]:
@@ -130,7 +132,13 @@ def replace_placeholders_unseen(instruction: str, episode_params: Dict[str, str]
 
 def load_task_instructions(task_name: str) -> Dict[str, Any]:
     """Load the task instructions from the JSON file."""
-    file_path = os.path.join(parent_directory, f"../task_instruction/{task_name}.json")
+    bench_instruction_path = (
+        bench_root / "bench_description" / "task_instructions" / f"{task_name}.json"
+    )
+    if bench_instruction_path.exists():
+        file_path = str(bench_instruction_path)
+    else:
+        file_path = os.path.join(parent_directory, f"../task_instruction/{task_name}.json")
     with open(file_path, "r") as f:
         task_data = json.load(f)
     return task_data
@@ -258,9 +266,15 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    setting_file = os.path.join(
-        parent_directory, f"../../task_config/{args.setting}.yml"
+    bench_root_path = (
+        bench_root / "bench_task_config" / f"{args.setting}.yml"
     )
+    if bench_root_path.exists():
+        setting_file = str(bench_root_path)
+    else:
+        setting_file = os.path.join(
+            parent_directory, f"../../task_config/{args.setting}.yml"
+        )
     with open(setting_file, "r", encoding="utf-8") as f:
         args_dict = yaml.load(f.read(), Loader=yaml.FullLoader)
 

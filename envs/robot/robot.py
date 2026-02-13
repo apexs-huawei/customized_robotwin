@@ -35,6 +35,8 @@ class Robot:
         left_robot_file = kwargs["left_robot_file"]
         right_robot_file = kwargs["right_robot_file"]
 
+        self.collision_cache = kwargs.get("collision_cache", {"mesh": 1, "obb": 1})
+
         self.need_topp = need_topp
 
         self.left_urdf_path = os.path.join(left_robot_file, left_embodiment_args["urdf_path"])
@@ -263,16 +265,17 @@ class Robot:
         if self.is_dual_arm:
             abs_left_curobo_yml_path = abs_left_curobo_yml_path.replace("curobo.yml", "curobo_left.yml")
             abs_right_curobo_yml_path = abs_right_curobo_yml_path.replace("curobo.yml", "curobo_right.yml")
-
         if not self.communication_flag:
             self.left_planner = CuroboPlanner(self.left_entity_origion_pose,
                                               self.left_arm_joints_name,
                                               [joint.get_name() for joint in self.left_entity.get_active_joints()],
-                                              yml_path=abs_left_curobo_yml_path)
+                                              yml_path=abs_left_curobo_yml_path,
+                                              collision_cache=self.collision_cache)
             self.right_planner = CuroboPlanner(self.right_entity_origion_pose,
                                                self.right_arm_joints_name,
                                                [joint.get_name() for joint in self.right_entity.get_active_joints()],
-                                               yml_path=abs_right_curobo_yml_path)
+                                               yml_path=abs_right_curobo_yml_path,
+                                               collision_cache=self.collision_cache)
         else:
             self.left_conn, left_child_conn = mp.Pipe()
             self.right_conn, right_child_conn = mp.Pipe()
@@ -326,6 +329,10 @@ class Robot:
             self.right_planner.update_point_cloud(world_pcd, resolution=0.02)
         except:
             print("Update world pointcloud wrong!")
+    
+    def update_world(self, collision_dict):
+        self.left_planner.update_world(collision_dict, arms_tag="left")
+        self.right_planner.update_world(collision_dict, arms_tag="right")
 
     def _trans_from_gripper_to_endlink(self, target_pose, arm_tag=None):
         gripper_bias = (self.left_gripper_bias if arm_tag == "left" else self.right_gripper_bias)
@@ -472,7 +479,6 @@ class Robot:
             now_qpos = deepcopy(last_qpos)
 
         trans_target_pose = self._trans_from_gripper_to_endlink(target_pose, arm_tag="right")
-
         if self.communication_flag:
             self.right_conn.send({
                 "cmd": "plan_path",
