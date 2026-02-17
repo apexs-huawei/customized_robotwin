@@ -35,7 +35,7 @@ class Robot:
         left_robot_file = kwargs["left_robot_file"]
         right_robot_file = kwargs["right_robot_file"]
 
-        self.collision_cache = kwargs.get("collision_cache", {"mesh": 1, "obb": 1})
+        self.collision_cache = kwargs.get("collision_cache", {"mesh": 100, "obb": 1})
 
         self.need_topp = need_topp
 

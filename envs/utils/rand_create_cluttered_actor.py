@@ -185,6 +185,83 @@ def rand_pose_cluttered(
 
     return True, sapien.Pose([x, y, z], rotate)
 
+def rand_pose_cluttered_shelf(
+    xlim: np.ndarray,
+    ylim: np.ndarray,
+    zlim: np.ndarray,
+    ylim_prop=False,
+    rotate_rand=False,
+    rotate_lim=[0, 0, 0],
+    qpos=[1, 0, 0, 0],
+    size_dict=None,
+    obj_radius=0.1,
+    z_offset=0.001,
+    z_max=0,
+    prohibited_area=None,
+    obj_margin=0.005,
+) -> sapien.Pose:
+    if len(xlim) < 2 or xlim[1] < xlim[0]:
+        xlim = np.array([xlim[0], xlim[0]])
+    else:
+        xlim = np.array([xlim[0] + obj_radius, xlim[1] - obj_radius])
+        if xlim[0] > xlim[1]:
+            # raise ValueError(
+            #     f"obj_radius={obj_radius} too large for xlim: bounds leave no valid center range after inset."
+            # )
+            return False, None
+    if len(ylim) < 2 or ylim[1] < ylim[0]:
+        ylim = np.array([ylim[0], ylim[0]])
+    else:
+        ylim = np.array([ylim[0] + obj_radius, ylim[1] - obj_radius])
+        if ylim[0] > ylim[1]:
+            # raise ValueError(
+            #     f"obj_radius={obj_radius} too large for ylim: bounds leave no valid center range after inset."
+            # )
+            return False, None
+    if len(zlim) < 2 or zlim[1] < zlim[0]:
+        zlim = np.array([zlim[0], zlim[0]])
+
+    times = 0
+    while True:
+        times += 1
+        if times > 100:
+            return False, None
+        x = np.random.uniform(xlim[0], xlim[1])
+        y = np.random.uniform(ylim[0], ylim[1])
+        new_obj_radius = obj_radius + obj_margin
+        is_overlap = False
+        for area in prohibited_area:
+            if check_overlap(new_obj_radius, x, y, area):
+                is_overlap = True
+                break
+        if is_overlap:
+            continue
+        distances = np.sqrt((np.array([sub_list[0] for sub_list in size_dict]) - x)**2 +
+                            (np.array([sub_list[1] for sub_list in size_dict]) - y)**2)
+        max_distances = np.array([sub_list[3] + new_obj_radius + obj_margin for sub_list in size_dict])
+
+        # if y - new_obj_radius < 0:
+        #     if z_max > 0.05:
+        #         continue
+        # if (x - new_obj_radius < -0.6 or x + new_obj_radius > 0.6 or y - new_obj_radius < -0.34
+        #         or y + new_obj_radius > 0.34):
+        #     continue
+        if np.all(distances > max_distances):
+            break
+
+    z = np.random.uniform(zlim[0], zlim[1])
+    z = z - z_offset
+
+    rotate = qpos
+    if rotate_rand:
+        angles = [0, 0, 0]
+        for i in range(3):
+            angles[i] = np.random.uniform(-rotate_lim[i], rotate_lim[i])
+        rotate_quat = t3d.euler.euler2quat(angles[0], angles[1], angles[2])
+        rotate = t3d.quaternions.qmult(rotate, rotate_quat)
+
+    return True, sapien.Pose([x, y, z], rotate)
+
 
 def rand_create_cluttered_actor(
     scene,
@@ -207,6 +284,7 @@ def rand_create_cluttered_actor(
     z_max=0,
     fix_root_link=True,
     prohibited_area=None,
+    shelf=False,
 ) -> tuple[bool, Actor | None]:
 
     if qpos is None:
@@ -215,21 +293,36 @@ def rand_create_cluttered_actor(
             rotate_lim = [rotate_lim[0], rotate_lim[2], rotate_lim[1]]
         else:
             qpos = [1, 0, 0, 0]
-
-    success, obj_pose = rand_pose_cluttered(
-        xlim=xlim,
-        ylim=ylim,
-        zlim=zlim,
-        ylim_prop=ylim_prop,
-        rotate_rand=rotate_rand,
-        rotate_lim=rotate_lim,
-        qpos=qpos,
-        size_dict=size_dict,
-        obj_radius=obj_radius,
-        z_offset=z_offset,
-        z_max=z_max,
-        prohibited_area=prohibited_area,
-    )
+    if not shelf:
+        success, obj_pose = rand_pose_cluttered(
+            xlim=xlim,
+            ylim=ylim,
+            zlim=zlim,
+            ylim_prop=ylim_prop,
+            rotate_rand=rotate_rand,
+            rotate_lim=rotate_lim,
+            qpos=qpos,
+            size_dict=size_dict,
+            obj_radius=obj_radius,
+            z_offset=z_offset,
+            z_max=z_max,
+            prohibited_area=prohibited_area,
+        )
+    else:
+        success, obj_pose = rand_pose_cluttered_shelf(
+            xlim=xlim,
+            ylim=ylim,
+            zlim=zlim,
+            ylim_prop=ylim_prop,
+            rotate_rand=rotate_rand,
+            rotate_lim=rotate_lim,
+            qpos=qpos,
+            size_dict=size_dict,
+            obj_radius=obj_radius,
+            z_offset=z_offset,
+            z_max=z_max,
+            prohibited_area=prohibited_area,
+        )
 
     if not success:
         return False, None
