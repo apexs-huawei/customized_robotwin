@@ -81,7 +81,7 @@ try:
                 self.yml_path,
                 world_config,
                 interpolation_dt=1 / 250,
-                num_trajopt_seeds=1,
+                num_trajopt_seeds=8,
                 collision_cache=collision_cache,
             )
 
@@ -92,7 +92,7 @@ try:
                 self.yml_path,
                 world_config,
                 interpolation_dt=1 / 250,
-                num_trajopt_seeds=1,
+                num_trajopt_seeds=8,
                 num_graph_seeds=1,
                 collision_cache=collision_cache,
             )
@@ -152,8 +152,7 @@ try:
 
             # ------------------------------------------
             if result.success.item() == False:
-                print("success:", bool(result.success.item()))
-                print("status:", result.status)
+                print("[Error]: CuroboPlanner plan_path failed:", result.status)
             # ------------------------------------------
 
             # output

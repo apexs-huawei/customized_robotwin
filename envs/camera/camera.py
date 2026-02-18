@@ -581,3 +581,11 @@ class Camera:
             index = index.detach().cpu().numpy()[0]
 
         return combined_pcd[index]
+
+    def add_extra_cameras(self, config_path):
+        """
+        Add extra cameras that are independent of the robot embodiment to the static camera list
+        """
+        with open(config_path, "r", encoding="utf-8") as f:
+            camera_args = yaml.load(f.read(), Loader=yaml.FullLoader)
+        self.static_camera_info_list.extend(camera_args["static_camera_list"])
