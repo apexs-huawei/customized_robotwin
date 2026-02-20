@@ -1,6 +1,10 @@
 import sys
+from pathlib import Path
 
 sys.path.append("./")
+
+from script.bench_script.setup_paths import setup_paths
+setup_paths()
 
 import sapien.core as sapien
 from sapien.render import clear_cache
@@ -17,16 +21,24 @@ from argparse import ArgumentParser
 
 current_file_path = os.path.abspath(__file__)
 parent_directory = os.path.dirname(current_file_path)
+bench_root = Path(os.environ["BENCH_ROOT"])
 
 
 def class_decorator(task_name):
-    envs_module = importlib.import_module(f"envs.{task_name}")
-    try:
-        env_class = getattr(envs_module, task_name)
-        env_instance = env_class()
-    except:
-        raise SystemExit("No such task")
-    return env_instance
+    module_paths = [
+        f"bench_envs.{task_name}",
+        f"envs.{task_name}",
+    ]
+
+    for path in module_paths:
+        try:
+            envs_module = importlib.import_module(path)
+            env_class = getattr(envs_module, task_name)
+            return env_class()
+        except (ModuleNotFoundError, AttributeError):
+            continue
+
+    raise SystemExit("No such task")
 
 
 def get_embodiment_config(robot_file):
@@ -39,10 +51,13 @@ def get_embodiment_config(robot_file):
 def main(task_name=None, task_config=None):
 
     task = class_decorator(task_name)
-    config_path = f"./task_config/{task_config}.yml"
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        args = yaml.load(f.read(), Loader=yaml.FullLoader)
+    try:
+        with open(f"{bench_root}/bench_task_config/{task_config}.yml", "r", encoding="utf-8") as f:
+            args = yaml.load(f.read(), Loader=yaml.FullLoader)
+    except FileNotFoundError:
+        with open(f"./task_config/{task_config}.yml", "r", encoding="utf-8") as f:
+            args = yaml.load(f.read(), Loader=yaml.FullLoader)
 
     args['task_name'] = task_name
 

@@ -7,6 +7,8 @@ from .create_actor import *
 import re
 import json
 from pathlib import Path
+import xml.etree.ElementTree as ET
+
 
 
 def get_all_cluttered_objects():
@@ -370,9 +372,6 @@ def create_cluttered_urdf_obj(scene, pose: sapien.Pose, modelname: str, scale=1.
         return ArticulationActor(object, None, scale=urdf_mesh_scales(modeldir / "model.urdf"))
     else:
         return Actor(object, None, scale=urdf_mesh_scales(modeldir / "model.urdf"))
-
-from pathlib import Path
-import xml.etree.ElementTree as ET
 
 def urdf_mesh_scales(urdf_path: str | Path):
     urdf_path = Path(urdf_path)

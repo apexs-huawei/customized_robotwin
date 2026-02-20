@@ -4,6 +4,8 @@ from argparse import ArgumentParser
 import os
 from pathlib import Path
 
+bench_root = Path(os.environ["BENCH_ROOT"])
+
 with open("./_generate_task_prompt.txt", "r") as f:
     system_prompt = f.read()
 
@@ -69,13 +71,11 @@ def make_prompt_generate(detailed_task, preferences, schema, instruction_num):
 
 
 def generate_task_description(task_name, instruction_num):
-    # Try BENCH_ROOT path first, fall back to standard path if it doesn't exist
-    bench_root_path = Path(os.environ.get("BENCH_ROOT", "")) / "bench_description" / "task_instruction" / f"{task_name}.json"
-    standard_path = Path(f"./task_instruction/{task_name}.json")
-    
+    bench_root_path = bench_root / "bench_description" / "task_instruction" / f"{task_name}.json"
     if bench_root_path.exists():
         file_path = bench_root_path
     else:
+        standard_path = Path(f"./task_instruction/{task_name}.json")
         file_path = standard_path
     
     with open(file_path, "r") as f:
