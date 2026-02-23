@@ -48,12 +48,16 @@ def main():
     task_name = args.task_name
     num = args.expert_data_num
     task_config = args.task_config
+    if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
+        load_dir = "../../data/bench_data/" + str(task_name) + "/" + str(task_config)
 
-    load_dir = "../../data/" + str(task_name) + "/" + str(task_config)
+        save_dir = f"./data/{task_name}-{task_config}-{num}.zarr"
+    else:
+        load_dir = "../../data/" + str(task_name) + "/" + str(task_config)
+
+        save_dir = f"./data/{task_name}-{task_config}-{num}.zarr"
 
     total_count = 0
-
-    save_dir = f"./data/{task_name}-{task_config}-{num}.zarr"
 
     if os.path.exists(save_dir):
         shutil.rmtree(save_dir)

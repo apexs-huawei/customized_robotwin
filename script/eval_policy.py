@@ -5,6 +5,10 @@ import subprocess
 sys.path.append("./")
 sys.path.append(f"./policy")
 sys.path.append("./description/utils")
+
+from script.bench_script.setup_paths import setup_paths
+setup_paths()
+
 from envs import CONFIGS_PATH
 from envs.utils.create_actor import UnStableError
 
@@ -26,7 +30,10 @@ parent_directory = os.path.dirname(current_file_path)
 
 
 def class_decorator(task_name):
-    envs_module = importlib.import_module(f"envs.{task_name}")
+    if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
+        envs_module = importlib.import_module(f"bench_envs.{task_name}")
+    else:
+        envs_module = importlib.import_module(f"envs.{task_name}")
     try:
         env_class = getattr(envs_module, task_name)
         env_instance = env_class()
@@ -75,8 +82,12 @@ def main(usr_args):
 
     get_model = eval_function_decorator(policy_name, "get_model")
 
-    with open(f"./task_config/{task_config}.yml", "r", encoding="utf-8") as f:
-        args = yaml.load(f.read(), Loader=yaml.FullLoader)
+    if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
+        with open(f"{os.getenv('BENCH_ROOT')}/bench_task_config/{task_config}.yml", "r", encoding="utf-8") as f:
+            args = yaml.load(f.read(), Loader=yaml.FullLoader)
+    else:
+        with open(f"./task_config/{task_config}.yml", "r", encoding="utf-8") as f:
+            args = yaml.load(f.read(), Loader=yaml.FullLoader)
 
     args['task_name'] = task_name
     args["task_config"] = task_config
@@ -121,7 +132,10 @@ def main(usr_args):
     else:
         embodiment_name = str(embodiment_type[0]) + "+" + str(embodiment_type[1])
 
-    save_dir = Path(f"eval_result/{task_name}/{policy_name}/{task_config}/{ckpt_setting}/{current_time}")
+    if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
+        save_dir = Path(f"eval_result/bench_eval_result/{task_name}/{policy_name}/{task_config}/{ckpt_setting}/{current_time}")
+    else:
+        save_dir = Path(f"eval_result/{task_name}/{policy_name}/{task_config}/{ckpt_setting}/{current_time}")
     save_dir.mkdir(parents=True, exist_ok=True)
 
     if args["eval_video_log"]:
@@ -130,7 +144,7 @@ def main(usr_args):
         video_size = str(camera_config["w"]) + "x" + str(camera_config["h"])
         video_save_dir.mkdir(parents=True, exist_ok=True)
         args["eval_video_save_dir"] = video_save_dir
-
+    
     # output camera config
     print("============= Config =============\n")
     print("\033[95mMessy Table:\033[0m " + str(args["domain_randomization"]["cluttered_table"]))
@@ -159,7 +173,7 @@ def main(usr_args):
 
     st_seed = 100000 * (1 + seed)
     suc_nums = []
-    test_num = 100
+    test_num = 1
     topk = 1
 
     model = get_model(usr_args)
