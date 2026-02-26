@@ -293,7 +293,8 @@ try:
                 gen.update_world(world_config)
             
             # world_model = self.motion_gen.world_coll_checker.world_model
-            # self.visualize_world_config(world_model)
+            # scene = self.visualize_world_config(world_model)
+            # scene.show()
             
         def world_to_arm_base_pose(self, world_pose, arms_tag=None):
             """
@@ -460,6 +461,86 @@ try:
                 except Exception as e:
                     print(f"Could not load mesh {mesh_obj.name}: {e}")
                 
+            return scene
+
+        def attach_object(self, object: dict, curr_joint_pos: list, arms_tag: str):
+            """
+            Attach an object to the robot in Curobo Planning.
+            Args:
+                object: dict, the object to attach
+                curr_joint_pos: list, the current joint positions
+                arms_tag: str, the arm tag
+            Returns:
+                None
+            """
+            p,q = self.world_to_arm_base_pose(object["pose"], arms_tag=arms_tag)
+            pose = np.concatenate([p, q]).tolist()
+            # -----------------------------------------------
+            obstacle = Mesh(
+                name=object["name"],
+                pose=pose,
+                file_path=object["file_path"],
+                scale=object["scale"],
+            ) 
+            # -----------------------------------------------
+            joint_indices = [self.all_joints.index(name) for name in self.active_joints_name if name in self.all_joints]
+            joint_angles = [curr_joint_pos[index] for index in joint_indices]
+            joint_angles = [round(angle, 5) for angle in joint_angles]
+            # -----------------------------------------------
+            joint_states = JointState.from_position(
+                torch.tensor(joint_angles).cuda().reshape(1, -1),
+                joint_names=self.active_joints_name,
+            )
+            for mg in [self.motion_gen, self.motion_gen_batch]:
+                ok = mg.attach_external_objects_to_robot(
+                    joint_state=joint_states,
+                    external_objects=[obstacle],
+                    link_name="attached_object",
+                    surface_sphere_radius=0.005,  # start here; decrease for tighter fit
+                    voxelize_method="ray",
+                )
+                assert ok
+        
+        def visualize_attached_objects(self, curr_joint_pos: list):
+            world_model = self.motion_gen.world_coll_checker.world_model
+            scene = self.visualize_world_config(world_model)
+            # ---- Add attached object spheres ----
+            kc = self.motion_gen.robot_cfg.kinematics.kinematics_config
+            ss = kc.get_link_spheres("attached_object")
+
+            valid_idx = (ss[:,3] > 0).nonzero().flatten()
+
+            # get EE pose for correct transform
+            joint_indices = [self.all_joints.index(name) for name in self.active_joints_name if name in self.all_joints]
+            joint_angles = [curr_joint_pos[index] for index in joint_indices]
+            joint_angles = [round(angle, 5) for angle in joint_angles]
+            # -----------------------------------------------
+            joint_states = JointState.from_position(
+                torch.tensor(joint_angles).cuda().reshape(1, -1),
+                joint_names=self.active_joints_name,
+            )
+
+            ks = self.motion_gen.compute_kinematics(joint_states)
+            w_T_ee = ks.ee_pose
+            from curobo.types.math import Pose
+
+            for i in valid_idx.tolist():
+                x, y, z, r = ss[i].tolist()
+
+                # sphere in EE frame
+                ee_T_sphere = Pose.from_list([x, y, z, 0, 0, 0, 1])
+                w_T_sphere = w_T_ee.multiply(ee_T_sphere)
+                center = w_T_sphere.position.squeeze().cpu().numpy()
+
+                # create trimesh sphere
+                sphere_mesh = trimesh.creation.icosphere(radius=r, subdivisions=2)
+                sphere_mesh.apply_translation(center)
+
+                # green for attached object
+                sphere_mesh.visual.face_colors = [0, 255, 0, 180]
+
+                scene.add_geometry(sphere_mesh)
+            
             scene.show()
 
     

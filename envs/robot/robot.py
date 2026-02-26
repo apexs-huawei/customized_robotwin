@@ -663,6 +663,20 @@ class Robot:
             drive_velocity_target = (np.clip(drive_target - real_joint.drive_target, -1.0, 1.0) * 0.05)
             real_joint.set_drive_target(drive_target)
             real_joint.set_drive_velocity_target(drive_velocity_target)
+    
+    def attach_object(self, object: dict, arms_tag: str):
+        if arms_tag == "left":
+            left_qpos = self.left_entity.get_qpos()
+            self.left_planner.attach_object(object, left_qpos, arms_tag="left")
+        elif arms_tag == "right":
+            right_qpos = self.right_entity.get_qpos()
+            self.right_planner.attach_object(object, right_qpos, arms_tag="right")
+
+    def visualize_attached_objects(self):
+        right_qpos = self.right_entity.get_qpos()
+        self.right_planner.visualize_attached_objects(right_qpos)
+        left_qpos = self.left_entity.get_qpos()
+        self.left_planner.visualize_attached_objects(left_qpos)
 
 
 def planner_process_worker(conn, args):
