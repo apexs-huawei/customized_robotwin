@@ -672,6 +672,12 @@ class Robot:
             right_qpos = self.right_entity.get_qpos()
             self.right_planner.attach_object(object, right_qpos, arms_tag="right")
 
+    def detach_object(self, arms_tag: str):
+        if arms_tag == "left":
+            self.left_planner.detach_object()
+        elif arms_tag == "right":
+            self.right_planner.detach_object()
+
     def visualize_attached_objects(self):
         right_qpos = self.right_entity.get_qpos()
         self.right_planner.visualize_attached_objects(right_qpos)

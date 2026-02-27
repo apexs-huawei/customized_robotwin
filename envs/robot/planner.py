@@ -473,7 +473,7 @@ try:
             Returns:
                 None
             """
-            p,q = self.world_to_arm_base_pose(object["pose"], arms_tag=arms_tag)
+            p,q = self.world_to_arm_base_pose(object["pose"], arms_tag=arms_tag) # convert object pose to arm base frame
             pose = np.concatenate([p, q]).tolist()
             # -----------------------------------------------
             obstacle = Mesh(
@@ -486,11 +486,12 @@ try:
             joint_indices = [self.all_joints.index(name) for name in self.active_joints_name if name in self.all_joints]
             joint_angles = [curr_joint_pos[index] for index in joint_indices]
             joint_angles = [round(angle, 5) for angle in joint_angles]
-            # -----------------------------------------------
             joint_states = JointState.from_position(
                 torch.tensor(joint_angles).cuda().reshape(1, -1),
                 joint_names=self.active_joints_name,
             )
+            # -----------------------------------------------
+
             for mg in [self.motion_gen, self.motion_gen_batch]:
                 ok = mg.attach_external_objects_to_robot(
                     joint_state=joint_states,
@@ -501,6 +502,10 @@ try:
                 )
                 assert ok
         
+        def detach_object(self):
+            for mg in [self.motion_gen, self.motion_gen_batch]:
+                mg.detach_object_from_robot(link_name="attached_object",)
+
         def visualize_attached_objects(self, curr_joint_pos: list):
             world_model = self.motion_gen.world_coll_checker.world_model
             scene = self.visualize_world_config(world_model)
