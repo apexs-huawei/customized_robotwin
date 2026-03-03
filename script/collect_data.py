@@ -25,21 +25,17 @@ bench_root = Path(os.environ["BENCH_ROOT"])
 
 
 def class_decorator(task_name):
-    module_paths = [
-        f"bench_envs.{task_name}",
-        f"envs.{task_name}",
-    ]
-
-    for path in module_paths:
-        try:
-            envs_module = importlib.import_module(path)
-            env_class = getattr(envs_module, task_name)
-            return env_class()
-        except (ModuleNotFoundError, AttributeError):
-            continue
-
-    raise SystemExit("No such task")
-
+    if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
+        module_paths = f"bench_envs.{task_name}"
+    else:
+        module_paths = f"envs.{task_name}"
+    
+    envs_module = importlib.import_module(module_paths)
+    try:
+        env_class = getattr(envs_module, task_name)
+        return env_class()
+    except (ModuleNotFoundError, AttributeError):
+        raise SystemExit("No such task")
 
 def get_embodiment_config(robot_file):
     robot_config_file = os.path.join(robot_file, "config.yml")
@@ -52,12 +48,13 @@ def main(task_name=None, task_config=None):
 
     task = class_decorator(task_name)
 
-    try:
-        with open(f"{bench_root}/bench_task_config/{task_config}.yml", "r", encoding="utf-8") as f:
-            args = yaml.load(f.read(), Loader=yaml.FullLoader)
-    except FileNotFoundError:
-        with open(f"./task_config/{task_config}.yml", "r", encoding="utf-8") as f:
-            args = yaml.load(f.read(), Loader=yaml.FullLoader)
+    if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
+        task_config_path = f"{bench_root}/bench_task_config/{task_config}.yml"
+    else:
+        task_config_path = f"./task_config/{task_config}.yml"
+        
+    with open(task_config_path, "r", encoding="utf-8") as f:
+        args = yaml.load(f.read(), Loader=yaml.FullLoader)
 
     args['task_name'] = task_name
 
