@@ -185,6 +185,8 @@ def main():
         env.scene.step()
         env.scene.update_render()
         viewer.render()
+    
+    print(f"Success: {env.check_success()}")
 
     env.close_env()
     print("Done.")

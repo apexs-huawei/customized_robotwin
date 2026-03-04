@@ -196,6 +196,163 @@ def create_box(
         }
     return Actor(entity, data)
 
+def create_visual_entity_box(
+    scene,
+    pose: sapien.Pose,
+    half_size,
+    color=None,
+    name="",
+    texture_id=None,
+) -> sapien.Entity:
+    scene, pose = preprocess(scene, pose)
+
+    entity = sapien.Entity()
+    entity.set_name(name)
+    entity.set_pose(pose)
+
+    # ----- Material -----
+    if texture_id is not None:
+        texturepath = f"./assets/background_texture/{texture_id}.png"
+        texture2d = sapien.render.RenderTexture2D(texturepath)
+
+        material = sapien.render.RenderMaterial()
+        material.set_base_color_texture(texture2d)
+        material.base_color = [1, 1, 1, 1]
+        material.metallic = 0.1
+        material.roughness = 0.3
+    else:
+        material = sapien.render.RenderMaterial(
+            base_color=[*color[:3], 1] if color is not None else [0.5, 0.5, 0.5, 1]
+        )
+
+    # ----- Render component only -----
+    render_component = sapien.render.RenderBodyComponent()
+    render_component.attach(
+        sapien.render.RenderShapeBox(half_size, material)
+    )
+
+    entity.add_component(render_component)
+    scene.add_entity(entity)
+
+    return entity
+
+def create_visual_textured_box(
+    scene,
+    pose: sapien.Pose,
+    half_size,
+    color=None,
+    name="",
+    texture_id=None,
+    boxtype="default",
+) -> Actor:
+    entity = create_visual_entity_box(
+        scene=scene,
+        pose=pose,
+        half_size=half_size,
+        color=color,
+        name=name,
+        texture_id=texture_id,
+    )
+    if boxtype == "default":
+        data = {
+            "center": [0, 0, 0],
+            "extents":
+            half_size,
+            "scale":
+            half_size,
+            "target_pose": [[[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 1], [0, 0, 0, 1]]],
+            "contact_points_pose": [
+                [
+                    [0, 0, 1, 0],
+                    [1, 0, 0, 0],
+                    [0, 1, 0, 0.0],
+                    [0, 0, 0, 1],
+                ],  # top_down(front)
+                [
+                    [1, 0, 0, 0],
+                    [0, 0, -1, 0],
+                    [0, 1, 0, 0.0],
+                    [0, 0, 0, 1],
+                ],  # top_down(right)
+                [
+                    [-1, 0, 0, 0],
+                    [0, 0, 1, 0],
+                    [0, 1, 0, 0.0],
+                    [0, 0, 0, 1],
+                ],  # top_down(left)
+                [
+                    [0, 0, -1, 0],
+                    [-1, 0, 0, 0],
+                    [0, 1, 0, 0.0],
+                    [0, 0, 0, 1],
+                ],  # top_down(back)
+                # [[0, 0, 1, 0], [0, -1, 0, 0], [1, 0, 0, 0.0], [0, 0, 0, 1]], # front
+                # [[0, -1, 0, 0], [0, 0, -1, 0], [1, 0, 0, 0.0], [0, 0, 0, 1]], # right
+                # [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0.0], [0, 0, 0, 1]], # left
+                # [[0, 0, -1, 0], [0, 1, 0, 0], [1, 0, 0, 0.0], [0, 0, 0, 1]], # back
+            ],
+            "transform_matrix":
+            np.eye(4).tolist(),
+            "functional_matrix": [
+                [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, -1.0, 0, 0.0],
+                    [0.0, 0, -1.0, -1],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+                [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, -1.0, 0, 0.0],
+                    [0.0, 0, -1.0, 1],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+            ],  # functional points matrix
+            "contact_points_description": [],  # contact points description
+            "contact_points_group": [[0, 1, 2, 3], [4, 5, 6, 7]],
+            "contact_points_mask": [True, True],
+            "target_point_description": ["The center point on the bottom of the box."],
+        }
+    else:
+        data = {
+            "center": [0, 0, 0],
+            "extents":
+            half_size,
+            "scale":
+            half_size,
+            "target_pose": [[[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 1], [0, 0, 0, 1]]],
+            "contact_points_pose": [
+                [[0, 0, 1, 0], [0, -1, 0, 0], [1, 0, 0, 0.7], [0, 0, 0, 1]],  # front
+                [[0, -1, 0, 0], [0, 0, -1, 0], [1, 0, 0, 0.7], [0, 0, 0, 1]],  # right
+                [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 0.7], [0, 0, 0, 1]],  # left
+                [[0, 0, -1, 0], [0, 1, 0, 0], [1, 0, 0, 0.7], [0, 0, 0, 1]],  # back
+                [[0, 0, 1, 0], [0, -1, 0, 0], [1, 0, 0, -0.7], [0, 0, 0, 1]],  # front
+                [[0, -1, 0, 0], [0, 0, -1, 0], [1, 0, 0, -0.7], [0, 0, 0, 1]],  # right
+                [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, -0.7], [0, 0, 0, 1]],  # left
+                [[0, 0, -1, 0], [0, 1, 0, 0], [1, 0, 0, -0.7], [0, 0, 0, 1]],  # back
+            ],
+            "transform_matrix":
+            np.eye(4).tolist(),
+            "functional_matrix": [
+                [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, -1.0, 0, 0.0],
+                    [0.0, 0, -1.0, -1.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+                [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, -1.0, 0, 0.0],
+                    [0.0, 0, -1.0, 1.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+            ],  # functional points matrix
+            "contact_points_description": [],  # contact points description
+            "contact_points_group": [[0, 1, 2, 3, 4, 5, 6, 7]],
+            "contact_points_mask": [True, True],
+            "target_point_description": ["The center point on the bottom of the box."],
+        }
+    return Actor(entity, data)
+
 
 # create spere
 def create_sphere(
