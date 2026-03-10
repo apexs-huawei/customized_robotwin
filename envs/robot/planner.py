@@ -290,6 +290,7 @@ try:
             world_config = WorldConfig.from_dict(collision_dict)
 
             for gen in [self.motion_gen, self.motion_gen_batch]:
+                gen.clear_world_cache()
                 gen.update_world(world_config)
             
             # world_model = self.motion_gen.world_coll_checker.world_model
