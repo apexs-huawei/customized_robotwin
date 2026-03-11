@@ -58,8 +58,8 @@ def get_all_cluttered_objects():
                 model_config: dict = json.load(open(model_cfg, "r", encoding="utf-8"))
                 if "center" not in model_config or "extents" not in model_config:
                     continue
-                if model_config.get("stable", False) is False:
-                    continue
+                # if model_config.get("stable", False) is False:
+                #     continue
                 center = model_config["center"]
                 extents = model_config["extents"]
                 scale = model_config.get("scale", [1.0, 1.0, 1.0])
@@ -105,6 +105,14 @@ def get_available_cluttered_objects(entity_on_scene: list):
     available_models = list(available_models)
     available_models.sort()
     return available_models, cluttered_objects_info
+
+def get_cluttered_objects_subset(object_names: list, entity_on_scene: list):
+    """Return only the specified object names from the available cluttered objects."""
+    available_names, cluttered_objects_info = get_available_cluttered_objects(entity_on_scene)
+    valid = [n for n in object_names if n in available_names]
+    valid.sort()
+    info_subset = {n: cluttered_objects_info[n] for n in valid}
+    return valid, info_subset
 
 
 def check_overlap(radius, x, y, area):
@@ -187,7 +195,7 @@ def rand_pose_cluttered(
 
     return True, sapien.Pose([x, y, z], rotate)
 
-def rand_pose_cluttered_shelf(
+def rand_pose_cluttered_unconstrained(
     xlim: np.ndarray,
     ylim: np.ndarray,
     zlim: np.ndarray,
@@ -286,16 +294,18 @@ def rand_create_cluttered_actor(
     z_max=0,
     fix_root_link=True,
     prohibited_area=None,
-    shelf=False,
+    constrained=True,
 ) -> tuple[bool, Actor | None]:
-
+    """
+    constrained: True for constrained placement (ie table), False for unconstrained placement
+    """
     if qpos is None:
         if modeltype == "glb":
             qpos = [0.707107, 0.707107, 0, 0]
             rotate_lim = [rotate_lim[0], rotate_lim[2], rotate_lim[1]]
         else:
             qpos = [1, 0, 0, 0]
-    if not shelf:
+    if constrained:
         success, obj_pose = rand_pose_cluttered(
             xlim=xlim,
             ylim=ylim,
@@ -311,7 +321,7 @@ def rand_create_cluttered_actor(
             prohibited_area=prohibited_area,
         )
     else:
-        success, obj_pose = rand_pose_cluttered_shelf(
+        success, obj_pose = rand_pose_cluttered_unconstrained(
             xlim=xlim,
             ylim=ylim,
             zlim=zlim,
