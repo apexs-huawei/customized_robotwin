@@ -91,6 +91,10 @@ def get_all_cluttered_objects():
 
 cluttered_objects_info, cluttered_objects_list, same_obj = get_all_cluttered_objects()
 
+def get_cluttered_objects_info():
+    global cluttered_objects_info
+    return cluttered_objects_info
+
 
 def get_available_cluttered_objects(entity_on_scene: list):
     global cluttered_objects_info, cluttered_objects_list, same_obj
@@ -345,6 +349,21 @@ def rand_create_cluttered_actor(
             pose=obj_pose,
             modelname=f"objects/objaverse/{modelname}/{modelid}",
             scale=scale if isinstance(scale, float) else scale[0],
+            fix_root_link=fix_root_link,
+        )
+        if obj is None:
+            return False, None
+        else:
+            return True, obj
+    elif modeltype == "sapien_urdf":
+        # Sapien URDF models live under assets/objects/{modelname}/, potentially with
+        # multiple numbered subdirectories. Use create_sapien_urdf_obj to load them.
+        obj = create_sapien_urdf_obj(
+            scene=scene,
+            pose=obj_pose,
+            modelname=modelname,
+            scale=scale,
+            modelid=modelid,
             fix_root_link=fix_root_link,
         )
         if obj is None:

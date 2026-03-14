@@ -811,4 +811,4 @@ def create_sapien_urdf_obj(
             bounding_box = json.load(open(bounding_box_file, "r", encoding="utf-8"))
             model_data["extents"] = (np.array(bounding_box["max"]) - np.array(bounding_box["min"])).tolist()
     object.set_name(modelname)
-    return ArticulationActor(object, model_data, scale=None)
+    return ArticulationActor(object, model_data, scale=scale)
