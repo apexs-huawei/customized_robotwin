@@ -289,7 +289,7 @@ def rand_create_cluttered_actor(
     rotate_rand=False,
     rotate_lim=[0, 0, 0],
     qpos=None,
-    scale=(1, 1, 1),
+    scale=None,
     convex=True,
     is_static=False,
     size_dict=None,
@@ -348,7 +348,7 @@ def rand_create_cluttered_actor(
             scene=scene,
             pose=obj_pose,
             modelname=f"objects/objaverse/{modelname}/{modelid}",
-            scale=scale if isinstance(scale, float) else scale[0],
+            scale=scale,
             fix_root_link=fix_root_link,
         )
         if obj is None:
@@ -397,10 +397,11 @@ def create_cluttered_urdf_obj(scene, pose: sapien.Pose, modelname: str, scale=1.
     object: sapien.Articulation = loader.load_multiple(str(modeldir / "model.urdf"))[1][0]
     object.set_pose(pose)
 
+    # combined_scale = urdf_mesh_scales(modeldir / "model.urdf") * scale
     if isinstance(object, sapien.physx.PhysxArticulation):
-        return ArticulationActor(object, None, scale=urdf_mesh_scales(modeldir / "model.urdf"))
+        return ArticulationActor(object, None, scale=[scale,scale,scale])
     else:
-        return Actor(object, None, scale=urdf_mesh_scales(modeldir / "model.urdf"))
+        return Actor(object, None, scale=[scale,scale,scale])
 
 def urdf_mesh_scales(urdf_path: str | Path):
     urdf_path = Path(urdf_path)
