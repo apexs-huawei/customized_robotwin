@@ -16,6 +16,7 @@ OUTPUTS:
     - <output_dir>/collision_test.mp4       : Video of demo_camera view
     - <output_dir>/collision_log.json       : Per-step raw contact details for debug
     - <output_dir>/collision_metrics.json   : Summary metrics (robot_to_furniture, etc.)
+    - <output_dir>/contact_step_*.png       : Debug images for first contact every N steps (default: 50)
 """
 import sys
 import os
@@ -69,10 +70,13 @@ def collect_raw_contacts(env):
     return getattr(env, "filtered_contacts_for_log", [])
 
 
-def make_patched_take_dense_action(env, collision_log, frame_list, capture_every_n=5):
+def make_patched_take_dense_action(env, collision_log, frame_list, capture_every_n=5, output_dir=None, contact_image_every_n=50, contact_images_saved=None):
     """Return a patched take_dense_action that logs collisions and captures frames."""
     original = env.take_dense_action
     global_step = [0]  # use list to allow mutation in closure
+    last_contact_image_at_step = [-(contact_image_every_n + 1)]  # so first contact triggers save
+    if contact_images_saved is None:
+        contact_images_saved = [0]
 
     def patched(control_seq, save_freq=-1):
         left_arm = control_seq["left_arm"]
@@ -135,6 +139,26 @@ def make_patched_take_dense_action(env, collision_log, frame_list, capture_every
                     "contacts": step_contacts,
                 })
 
+                # --- Save first contact image every N steps ---
+                if output_dir is not None and (global_step[0] - last_contact_image_at_step[0]) >= contact_image_every_n:
+                    env._update_render()
+                    env.cameras.update_picture()
+                    rgb_dict = env.cameras.get_rgb()
+                    cam_name = "demo_camera" if "demo_camera" in rgb_dict else "head_camera"
+                    if cam_name in rgb_dict:
+                        img = rgb_dict[cam_name]["rgb"].copy()
+                        if img.dtype != np.uint8:
+                            img = (img * 255).clip(0, 255).astype(np.uint8)
+                        contact_img_path = output_dir / f"contact_step_{global_step[0]:06d}.png"
+                        try:
+                            import imageio
+                            imageio.imwrite(str(contact_img_path), img)
+                        except ImportError:
+                            import cv2
+                            cv2.imwrite(str(contact_img_path), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+                        last_contact_image_at_step[0] = global_step[0]
+                        contact_images_saved[0] += 1
+
             # --- Inject: frame capture ---
             if global_step[0] % capture_every_n == 0:
                 env._update_render()
@@ -178,6 +202,7 @@ def main():
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--output-dir", type=str, default="./collision_test_output", help="Output directory")
     parser.add_argument("--capture-every", type=int, default=5, help="Capture frame every N physics steps")
+    parser.add_argument("--contact-image-every", type=int, default=50, help="Save contact debug image every N steps (first contact only)")
     parser.add_argument("--render-freq", type=int, default=0, help="Render freq (0=headless)")
     args = parser.parse_args()
 
@@ -250,8 +275,13 @@ def main():
     # Prepare recording
     collision_log = []
     frame_list = []
+    contact_images_saved = [0]
     env.take_dense_action = make_patched_take_dense_action(
-        env, collision_log, frame_list, capture_every_n=args.capture_every
+        env, collision_log, frame_list,
+        capture_every_n=args.capture_every,
+        output_dir=output_dir,
+        contact_image_every_n=args.contact_image_every,
+        contact_images_saved=contact_images_saved,
     )
 
     # Run play_once
@@ -264,6 +294,8 @@ def main():
     with open(log_path, "w", encoding="utf-8") as f:
         json.dump(collision_log, f, indent=2)
     print(f"Saved collision log: {log_path} ({len(collision_log)} steps with contacts)")
+    if contact_images_saved[0] > 0:
+        print(f"Saved {contact_images_saved[0]} contact debug images (every {args.contact_image_every} steps)")
 
     # Save metrics summary
     metrics = env.get_collision_metrics()
