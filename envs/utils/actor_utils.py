@@ -41,7 +41,7 @@ class Actor:
             local_matrix = np.array(self.config[type][idx])
         except:
             return None
-        local_matrix[:3, 3] *= np.array(self.config["scale"])
+        local_matrix[:3, 3] *= np.array(self.scale)
 
         world_matrix = actor_matrix @ local_matrix
 
