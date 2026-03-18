@@ -702,10 +702,27 @@ def create_actor(
         print(modelname, "is not exist model file!")
         return None
 
+    # Preserve any caller-provided scale so we can combine it with model_data["scale"].
+    user_scale = scale
+
     try:
         with open(json_file_path, "r") as file:
             model_data = json.load(file)
-    except:
+            base_scale = model_data.get("scale", user_scale)
+            # Combine scales: elementwise multiply base_scale and user_scale.
+            # This allows external callers to uniformly up/down-scale assets
+            # without breaking existing behavior when using the default scale=(1,1,1).
+            try:
+                base_arr = np.array(base_scale, dtype=float)
+                user_arr = np.array(user_scale, dtype=float)
+                if user_arr.size == 1:
+                    user_arr = np.repeat(user_arr, base_arr.size)
+                if base_arr.size == 1:
+                    base_arr = np.repeat(base_arr, user_arr.size)
+                scale = (base_arr * user_arr).tolist()
+            except Exception:
+                scale = base_scale
+    except Exception:
         model_data = None
 
     if scale is None:
@@ -800,9 +817,24 @@ def create_sapien_urdf_obj(
             modeldir = model_list[modelid]
     json_file = modeldir / "model_data.json"
 
+    # Preserve caller-provided scale so we can multiply it with the base scale
+    # from model_data.json, similar to create_actor.
+    user_scale = scale
+
     if json_file.exists():
         with open(json_file, "r") as file:
             model_data = json.load(file)
+        base_scale = model_data.get("scale", user_scale)
+        try:
+            base_arr = np.array(base_scale, dtype=float)
+            user_arr = np.array(user_scale, dtype=float)
+            if user_arr.size == 1:
+                user_arr = np.repeat(user_arr, base_arr.size)
+            if base_arr.size == 1:
+                base_arr = np.repeat(base_arr, user_arr.size)
+            scale = (base_arr * user_arr).tolist()
+        except Exception:
+            scale = base_scale
         trans_mat = np.array(model_data.get("transform_matrix", np.eye(4)))
     else:
         model_data = None
