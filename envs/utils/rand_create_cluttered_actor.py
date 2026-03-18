@@ -162,7 +162,8 @@ def get_cluttered_objects_subset(env_name: str, entities_on_scene: list):
 
                 params[model_id] = {
                     "z_max": (extents[1] + center[1]) * scale[1],
-                    "radius": max(extents[0] * scale[0], extents[2] * scale[2]) / 2,
+                    # "radius": max(extents[0] * scale[0], extents[2] * scale[2]) / 2,
+                    "radius": (extents[0] * scale[0] + extents[2] * scale[2]) / 4,
                     "z_offset": 0,
                     "scale": scale,
                 }
@@ -182,6 +183,120 @@ def get_cluttered_objects_subset(env_name: str, entities_on_scene: list):
 
     cluttered_objects_name = sorted(cluttered_objects_info.keys())
     return cluttered_objects_info, cluttered_objects_name
+
+
+def get_cluttered_objects_subset_2(env_name: str, distribution: str, entities_on_scene: list):
+    """
+    Variant of get_cluttered_objects_subset that separates obstacle names into
+    "short" and "tall" groups based on the task config.
+
+    It returns:
+        - cluttered_objects_info: dict model_name -> {ids, type, root, params}
+          containing all models (both short and tall) that are allowed and not
+          already on the scene.
+        - cluttered_objects_name_short: list of model names that come from the
+          "short" obstacle group and are actually available.
+        - cluttered_objects_name_tall: list of model names that come from the
+          "tall" obstacle group and are actually available.
+    """
+    same_obj = json.load(open(Path(f"{os.environ['BENCH_ROOT']}/bench_task_config/object_type_equivalencies.json"), "r", encoding="utf-8"))
+
+    # loading scales and obstacles from task_objects.yml
+    task_cfg_path = Path(f"{os.environ['BENCH_ROOT']}/bench_task_config/task_objects.yml")
+    with open(task_cfg_path, "r", encoding="utf-8") as f:
+        task_cfg = yaml.safe_load(f) or {}
+    scales_cfg = task_cfg.get("scales", {}) or {}
+    distribution_cfg = task_cfg.get(distribution) or {}
+    env_cfg = distribution_cfg.get(env_name) or {}
+    obstacles_cfg = env_cfg.get("obstacles") or {}
+
+    short_cfg = obstacles_cfg.get("short") or {}
+    tall_cfg = obstacles_cfg.get("tall") or {}
+
+    if not short_cfg and not tall_cfg:
+        return {}, [], []
+
+    # filter out models that are already on scene
+    models_in_use = set()
+    for entity_name in entities_on_scene:
+        if same_obj.get(entity_name) is not None:
+            models_in_use.update(same_obj[entity_name])
+        models_in_use.add(entity_name)
+
+    cluttered_objects_info = {}
+    cluttered_objects_name_short = []
+    cluttered_objects_name_tall = []
+    objects_dir = Path("./assets/objects")
+
+    def _process_group(group_cfg, group_name_list):
+        nonlocal cluttered_objects_info
+
+        if not group_cfg:
+            return
+
+        # obstacle name -> allowed model id strings
+        allowed_ids_by_obj = {
+            obj_name: set(str(i) for i in id_list)
+            for obj_name, id_list in group_cfg.items()
+        }
+
+        requested_names = set(allowed_ids_by_obj.keys())
+        allowed_names = requested_names - models_in_use
+
+        for model_name in sorted(allowed_names):
+            model_dir = objects_dir / model_name
+            allowed_ids = allowed_ids_by_obj.get(model_name, set())
+            model_id_list = []
+            params = {}
+            for model_id in allowed_ids:
+                model_cfg = model_dir / f"model_data{model_id}.json"
+                try:
+                    model_config = json.load(open(model_cfg, "r", encoding="utf-8"))
+                    if "center" not in model_config or "extents" not in model_config:
+                        continue
+                    center = model_config["center"]
+                    extents = model_config["extents"]
+
+                    obj_scale_entry = scales_cfg.get(model_name)
+                    if isinstance(obj_scale_entry, dict):
+                        scale_val = obj_scale_entry.get(str(model_id), None)
+                        if scale_val is None:
+                            scale_val = model_config.get("scale", [1.0, 1.0, 1.0])
+                            scale_val = scale_val[0]
+                        scale = [float(scale_val), float(scale_val), float(scale_val)]
+                    else:
+                        scale = model_config.get("scale", [1.0, 1.0, 1.0])
+
+                    params[model_id] = {
+                        "z_max": (extents[1] + center[1]) * scale[1],
+                        "radius": (extents[0] * scale[0] + extents[2] * scale[2]) / 4,
+                        "z_offset": 0,
+                        "scale": scale,
+                    }
+                    model_id_list.append(model_id)
+                except Exception as e:
+                    print(f"Error loading model config {model_cfg}: {e}")
+
+            if len(model_id_list) == 0:
+                continue
+            model_id_list.sort()
+
+            # Merge into shared dict; last group wins if duplicated.
+            cluttered_objects_info[model_name] = {
+                "ids": model_id_list,
+                "type": "glb",
+                "root": f"objects/{model_name}",
+                "params": params,
+            }
+            group_name_list.append(model_name)
+
+    _process_group(short_cfg, cluttered_objects_name_short)
+    _process_group(tall_cfg, cluttered_objects_name_tall)
+
+    cluttered_objects_name_short = sorted(set(cluttered_objects_name_short))
+    cluttered_objects_name_tall = sorted(set(cluttered_objects_name_tall))
+
+    return cluttered_objects_info, cluttered_objects_name_short, cluttered_objects_name_tall
 
 
 cluttered_objects_info, cluttered_objects_list, same_obj = get_all_cluttered_objects()
