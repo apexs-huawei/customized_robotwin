@@ -100,9 +100,9 @@ def create_box(
         data = {
             "center": [0, 0, 0],
             "extents":
-            half_size,
+            np.array(half_size)*2,
             "scale":
-            half_size,
+            [1,1,1],
             "target_pose": [[[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 1], [0, 0, 0, 1]]],
             "contact_points_pose": [
                 [
@@ -159,9 +159,9 @@ def create_box(
         data = {
             "center": [0, 0, 0],
             "extents":
-            half_size,
+            np.array(half_size)*2,
             "scale":
-            half_size,
+            [1,1,1],
             "target_pose": [[[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 1], [0, 0, 0, 1]]],
             "contact_points_pose": [
                 [[0, 0, 1, 0], [0, -1, 0, 0], [1, 0, 0, 0.7], [0, 0, 0, 1]],  # front
@@ -194,7 +194,7 @@ def create_box(
             "contact_points_mask": [True, True],
             "target_point_description": ["The center point on the bottom of the box."],
         }
-    return Actor(entity, data)
+    return Actor(entity, data, scale=[1,1,1])
 
 def create_visual_entity_box(
     scene,
