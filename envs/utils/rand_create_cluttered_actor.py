@@ -8,6 +8,7 @@ import re
 import json
 from pathlib import Path
 import xml.etree.ElementTree as ET
+import yaml
 
 
 
@@ -89,7 +90,105 @@ def get_all_cluttered_objects():
     return cluttered_objects_info, cluttered_objects_name, same_obj
 
 
+def get_cluttered_objects_subset(env_name: str, entities_on_scene: list):
+    """
+    Load cluttered object info for the obstacle objects of the given env from
+    benchmark/bench_task_config/task_objects.yml. Only includes model ids listed
+    for each obstacle. Excludes objects already in entities_on_scene. Uses scales
+    from the YAML to compute params.
+
+    Args:
+        env_name: Environment key in task_objects.yml (e.g. "office").
+        entities_on_scene: list of entity/model names already on scene (same_obj is used to expand).
+
+    Returns:
+        cluttered_objects_info: dict of model_name -> {ids, type, root, params}
+        cluttered_objects_name: sorted list of model names included.
+    """
+    same_obj = json.load(open(Path(f"{os.environ['BENCH_ROOT']}/bench_task_config/object_type_equivalencies.json"), "r", encoding="utf-8"))
+
+    # loading scales and obstacles from task_objects.yml
+    task_cfg_path = Path(f"{os.environ['BENCH_ROOT']}/bench_task_config/task_objects.yml")
+    with open(task_cfg_path, "r", encoding="utf-8") as f:
+        task_cfg = yaml.safe_load(f) or {}
+    scales_cfg = task_cfg.get("scales", {}) or {}
+    env_cfg = task_cfg.get(env_name) or {}
+    obstacles_cfg = env_cfg.get("obstacles") or {}
+
+    if not obstacles_cfg:
+        return {}, []
+
+    # obstacle name -> allowed model id strings (e.g. {"017_calculator": {"0","1",...}})
+    allowed_ids_by_obj = {
+        obj_name: set(str(i) for i in id_list)
+        for obj_name, id_list in obstacles_cfg.items()
+    }
+    object_names = list(allowed_ids_by_obj.keys())
+
+    # filter out models that are already on scene
+    models_in_use = set()
+    for entity_name in entities_on_scene:
+        if same_obj.get(entity_name) is not None:
+            models_in_use.update(same_obj[entity_name])
+        models_in_use.add(entity_name)
+
+    requested_names = set(object_names)
+    allowed_names = requested_names - models_in_use
+
+    cluttered_objects_info = {}
+    objects_dir = Path("./assets/objects")
+
+    # load models and compute params
+    for model_name in sorted(allowed_names):
+        model_dir = objects_dir / model_name
+        allowed_ids = allowed_ids_by_obj.get(model_name, set())
+        model_id_list = []
+        params = {}
+        for model_id in allowed_ids:
+            model_cfg = model_dir / f"model_data{model_id}.json"
+            try:
+                model_config = json.load(open(model_cfg, "r", encoding="utf-8"))
+                if "center" not in model_config or "extents" not in model_config:
+                    continue
+                center = model_config["center"]
+                extents = model_config["extents"]
+
+                obj_scale_entry = scales_cfg.get(model_name)
+                if isinstance(obj_scale_entry, dict):
+                    scale_val = obj_scale_entry.get(str(model_id), 1.0)
+                    scale = [float(scale_val), float(scale_val), float(scale_val)]
+                else:
+                    scale = model_config.get("scale", [1.0, 1.0, 1.0])
+
+                params[model_id] = {
+                    "z_max": (extents[1] + center[1]) * scale[1],
+                    "radius": max(extents[0] * scale[0], extents[2] * scale[2]) / 2,
+                    "z_offset": 0,
+                    "scale": scale,
+                }
+                model_id_list.append(model_id)
+            except Exception as e:
+                print(f"Error loading model config {model_cfg}: {e}")
+
+        if len(model_id_list) == 0:
+            continue
+        model_id_list.sort()
+        cluttered_objects_info[model_name] = {
+            "ids": model_id_list,
+            "type": "glb",
+            "root": f"objects/{model_name}",
+            "params": params,
+        }
+
+    cluttered_objects_name = sorted(cluttered_objects_info.keys())
+    return cluttered_objects_info, cluttered_objects_name
+
+
 cluttered_objects_info, cluttered_objects_list, same_obj = get_all_cluttered_objects()
+
+def get_cluttered_objects_info():
+    global cluttered_objects_info
+    return cluttered_objects_info
 
 
 def get_available_cluttered_objects(entity_on_scene: list):
@@ -106,13 +205,6 @@ def get_available_cluttered_objects(entity_on_scene: list):
     available_models.sort()
     return available_models, cluttered_objects_info
 
-def get_cluttered_objects_subset(object_names: list, entity_on_scene: list):
-    """Return only the specified object names from the available cluttered objects."""
-    available_names, cluttered_objects_info = get_available_cluttered_objects(entity_on_scene)
-    valid = [n for n in object_names if n in available_names]
-    valid.sort()
-    info_subset = {n: cluttered_objects_info[n] for n in valid}
-    return valid, info_subset
 
 
 def check_overlap(radius, x, y, area):
@@ -285,7 +377,7 @@ def rand_create_cluttered_actor(
     rotate_rand=False,
     rotate_lim=[0, 0, 0],
     qpos=None,
-    scale=(1, 1, 1),
+    scale=None,
     convex=True,
     is_static=False,
     size_dict=None,
@@ -344,7 +436,22 @@ def rand_create_cluttered_actor(
             scene=scene,
             pose=obj_pose,
             modelname=f"objects/objaverse/{modelname}/{modelid}",
-            scale=scale if isinstance(scale, float) else scale[0],
+            scale=scale,
+            fix_root_link=fix_root_link,
+        )
+        if obj is None:
+            return False, None
+        else:
+            return True, obj
+    elif modeltype == "sapien_urdf":
+        # Sapien URDF models live under assets/objects/{modelname}/, potentially with
+        # multiple numbered subdirectories. Use create_sapien_urdf_obj to load them.
+        obj = create_sapien_urdf_obj(
+            scene=scene,
+            pose=obj_pose,
+            modelname=modelname,
+            scale=scale,
+            modelid=modelid,
             fix_root_link=fix_root_link,
         )
         if obj is None:
@@ -378,10 +485,11 @@ def create_cluttered_urdf_obj(scene, pose: sapien.Pose, modelname: str, scale=1.
     object: sapien.Articulation = loader.load_multiple(str(modeldir / "model.urdf"))[1][0]
     object.set_pose(pose)
 
+    # combined_scale = urdf_mesh_scales(modeldir / "model.urdf") * scale
     if isinstance(object, sapien.physx.PhysxArticulation):
-        return ArticulationActor(object, None, scale=urdf_mesh_scales(modeldir / "model.urdf"))
+        return ArticulationActor(object, None, scale=[scale,scale,scale])
     else:
-        return Actor(object, None, scale=urdf_mesh_scales(modeldir / "model.urdf"))
+        return Actor(object, None, scale=[scale,scale,scale])
 
 def urdf_mesh_scales(urdf_path: str | Path):
     urdf_path = Path(urdf_path)

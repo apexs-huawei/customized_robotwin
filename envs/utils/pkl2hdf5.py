@@ -22,6 +22,21 @@ def images_encoding(imgs):
     return encode_data, max_len
 
 
+def depth_encoding(depths):
+    encode_data = []
+    max_len = 0
+    for i in range(len(depths)):
+        depth_uint16 = depths[i].clip(0, 65535).astype(np.uint16)
+        success, encoded_image = cv2.imencode(".png", depth_uint16)
+        png_data = encoded_image.tobytes()
+        encode_data.append(png_data)
+        max_len = max(max_len, len(png_data))
+    padded_data = []
+    for i in range(len(encode_data)):
+        padded_data.append(encode_data[i].ljust(max_len, b"\0"))
+    return padded_data, max_len
+
+
 def parse_dict_structure(data):
     if isinstance(data, dict):
         parsed = {}
@@ -64,6 +79,9 @@ def create_hdf5_from_dict(hdf5_group, data_dict):
             if "rgb" in key:
                 encode_data, max_len = images_encoding(value)
                 hdf5_group.create_dataset(key, data=encode_data, dtype=f"S{max_len}")
+            elif "depth" in key:
+                encode_data, max_len = depth_encoding(value)
+                hdf5_group.create_dataset(key, data=encode_data, dtype=f"S{max_len}")
             else:
                 hdf5_group.create_dataset(key, data=value)
         else:
@@ -81,7 +99,7 @@ def pkl_files_to_hdf5_and_video(pkl_files, hdf5_path, video_path):
         pkl_file = load_pkl_file(pkl_file_path)
         append_data_to_structure(data_list, pkl_file)
 
-    images_to_video(np.array(data_list["observation"]["demo_camera"]["rgb"]), out_path=video_path) # usually head_camera, demo_camera for new benchmark
+    images_to_video(np.array(data_list["observation"]["countertop_camera"]["rgb"]), out_path=video_path) # usually head_camera, demo_camera for new benchmark
 
     with h5py.File(hdf5_path, "w") as f:
         create_hdf5_from_dict(f, data_list)

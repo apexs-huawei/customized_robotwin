@@ -50,7 +50,7 @@ def rand_create_obj(
         rotate_rand=False,
         rotate_lim=[0, 0, 0],
         qpos=[1, 0, 0, 0],
-        scale=(1, 1, 1),
+        scale=None,
         convex=False,
         is_static=False,
         model_id=None,
@@ -87,7 +87,7 @@ def rand_create_glb(
         rotate_rand=False,
         rotate_lim=[0, 0, 0],
         qpos=[1, 0, 0, 0],
-        scale=(1, 1, 1),
+        scale=None,
         convex=False,
         is_static=False,
         model_id=None,
@@ -124,7 +124,7 @@ def rand_create_urdf_obj(
     rotate_rand=False,
     rotate_lim=[0, 0, 0],
     qpos=[1, 0, 0, 0],
-    scale=1.0,
+    scale=None,
     fix_root_link=True,
 ) -> ArticulationActor:
 
@@ -158,7 +158,7 @@ def rand_create_sapien_urdf_obj(
     rotate_rand=False,
     rotate_lim=[0, 0, 0],
     qpos=[1, 0, 0, 0],
-    scale=1.0,
+    scale=None,
     fix_root_link=False,
 ) -> ArticulationActor:
     obj_pose = rand_pose(
@@ -190,7 +190,7 @@ def rand_create_actor(
         rotate_rand=False,
         rotate_lim=[0, 0, 0],
         qpos=[1, 0, 0, 0],
-        scale=(1, 1, 1),
+        scale=None,
         convex=False,
         is_static=False,
         model_id=0,

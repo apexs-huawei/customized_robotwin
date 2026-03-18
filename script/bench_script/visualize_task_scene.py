@@ -99,7 +99,10 @@ def main():
 
     # Load env class from bench_envs
     env_class = get_env_class(task_name)
-    config_path = bench_root / "bench_task_config" / f"{task_config}.yml"
+    if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
+        config_path = bench_root / "bench_task_config" / f"{task_config}.yml"
+    else:
+        config_path = Path(f"./task_config/{task_config}.yml")
     if not config_path.exists():
         raise SystemExit(f"Config not found: {config_path}")
 

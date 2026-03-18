@@ -551,7 +551,7 @@ def create_obj(
         scene,
         pose: sapien.Pose,
         modelname: str,
-        scale=(1, 1, 1),
+        scale=None,
         convex=False,
         is_static=False,
         model_id=None,
@@ -570,9 +570,16 @@ def create_obj(
     try:
         with open(json_file_path, "r") as file:
             model_data = json.load(file)
-        scale = model_data["scale"]
     except:
         model_data = None
+    
+    if scale is None:
+        if model_data is not None and "scale" in model_data:
+            scale = model_data["scale"]
+        else:
+            scale = [1, 1, 1]
+    elif isinstance(scale, (int, float)):
+        scale = [scale, scale, scale]
 
     builder = scene.create_actor_builder()
     if is_static:
@@ -590,7 +597,7 @@ def create_obj(
     mesh = builder.build(name=modelname)
     mesh.set_pose(pose)
 
-    return Actor(mesh, model_data)
+    return Actor(mesh, model_data, scale=scale)
 
 
 # create glb model
@@ -598,7 +605,7 @@ def create_glb(
         scene,
         pose: sapien.Pose,
         modelname: str,
-        scale=(1, 1, 1),
+        scale=None,
         convex=False,
         is_static=False,
         model_id=None,
@@ -616,9 +623,16 @@ def create_glb(
     try:
         with open(json_file_path, "r") as file:
             model_data = json.load(file)
-        scale = model_data["scale"]
     except:
         model_data = None
+
+    if scale is None:
+        if model_data is not None and "scale" in model_data:
+            scale = model_data["scale"]
+        else:
+            scale = [1, 1, 1]
+    elif isinstance(scale, (int, float)):
+        scale = [scale, scale, scale]
 
     builder = scene.create_actor_builder()
     if is_static:
@@ -638,7 +652,7 @@ def create_glb(
     mesh = builder.build(name=modelname)
     mesh.set_pose(pose)
 
-    return Actor(mesh, model_data)
+    return Actor(mesh, model_data, scale=scale)
 
 
 def get_glb_or_obj_file(modeldir, model_id):
@@ -659,7 +673,7 @@ def create_actor(
         scene,
         pose: sapien.Pose,
         modelname: str,
-        scale=(1, 1, 1),
+        scale=None,
         convex=False,
         is_static=False,
         model_id=0,
@@ -711,6 +725,14 @@ def create_actor(
     except Exception:
         model_data = None
 
+    if scale is None:
+        if model_data is not None and "scale" in model_data:
+            scale = model_data["scale"]
+        else:
+            scale = [1, 1, 1]
+    elif isinstance(scale, (int, float)):
+        scale = [scale, scale, scale]
+
     builder = scene.create_actor_builder()
     if is_static:
         builder.set_physx_body_type("static")
@@ -733,35 +755,40 @@ def create_actor(
 
 
 # create urdf model
-def create_urdf_obj(scene, pose: sapien.Pose, modelname: str, scale=1.0, fix_root_link=True) -> ArticulationActor:
+def create_urdf_obj(scene, pose: sapien.Pose, modelname: str, scale=None, fix_root_link=True) -> ArticulationActor:
     scene, pose = preprocess(scene, pose)
 
     modeldir = Path("./assets/objects") / modelname
     json_file_path = modeldir / "model_data.json"
     loader: sapien.URDFLoader = scene.create_urdf_loader()
-    loader.scale = scale
 
     try:
         with open(json_file_path, "r") as file:
             model_data = json.load(file)
-        loader.scale = model_data["scale"][0]
     except:
         model_data = None
+
+    if scale is None:
+        if model_data is not None and "scale" in model_data:
+            scale = model_data["scale"][0]
+        else:
+            scale = 1.0
+
+    loader.scale = scale
 
     loader.fix_root_link = fix_root_link
     loader.load_multiple_collisions_from_file = True
     object: sapien.Articulation = loader.load(str(modeldir / "mobility.urdf"))
-
     object.set_root_pose(pose)
     object.set_name(modelname)
-    return ArticulationActor(object, model_data, scale=None)
+    return ArticulationActor(object, model_data, scale=[scale,scale,scale]) # mobility.urdf does not contain a scale so final scale is just loader.scale
 
 
 def create_sapien_urdf_obj(
     scene,
     pose: sapien.Pose,
     modelname: str,
-    scale=1.0,
+    scale=None,
     modelid: int = None,
     fix_root_link=False,
 ) -> ArticulationActor:
@@ -812,6 +839,12 @@ def create_sapien_urdf_obj(
     else:
         model_data = None
         trans_mat = np.eye(4)
+    
+    if scale is None:
+        if model_data is not None and "scale" in model_data:
+            scale = model_data["scale"]
+        else:
+            scale = 1.0
 
     loader: sapien.URDFLoader = scene.create_urdf_loader()
     loader.scale = scale
@@ -838,4 +871,4 @@ def create_sapien_urdf_obj(
             bounding_box = json.load(open(bounding_box_file, "r", encoding="utf-8"))
             model_data["extents"] = (np.array(bounding_box["max"]) - np.array(bounding_box["min"])).tolist()
     object.set_name(modelname)
-    return ArticulationActor(object, model_data, scale=None)
+    return ArticulationActor(object, model_data, scale=[scale,scale,scale])

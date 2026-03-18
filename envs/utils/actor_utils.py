@@ -114,13 +114,17 @@ class ArticulationActor(Actor):
 
         self.link_dict = self.get_link_dict()
         self.set_mass(mass)
-        self.scale = scale
+        self.scale = [scale,scale,scale] if isinstance(scale, float) else scale
         
     def get_link_dict(self) -> dict[str, PhysxArticulationLinkComponent]:
         link_dict = {}
         for link in self.actor.get_links():
             link_dict[link.get_name()] = link
         return link_dict
+
+    def get_link_pose(self, link_name: str) -> sapien.Pose:
+        """Return the world pose of the given link."""
+        return self.link_dict[link_name].get_pose()
 
     def get_point(
         self,
