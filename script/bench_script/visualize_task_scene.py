@@ -89,6 +89,8 @@ def main():
     parser.add_argument("--seed", type=int, default=-1, help="Random seed for scene")
     parser.add_argument("--render-freq", type=int, default=3, help="Render every N steps (default 1)")
     parser.add_argument("--rollout", action="store_true", help="Run play_once() to roll out the task")
+    parser.add_argument("--save_data", action="store_true", help="Save the visualization")
+
     args = parser.parse_args()
 
     task_name = args.task_name
@@ -97,8 +99,10 @@ def main():
     render_freq = args.render_freq
     rollout = args.rollout
 
+
     # Load env class from bench_envs
     env_class = get_env_class(task_name)
+
     if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
         config_path = bench_root / "bench_task_config" / f"{task_config}.yml"
     else:
@@ -114,7 +118,7 @@ def main():
     cfg["now_ep_num"] = 0
     cfg["seed"] = seed if seed != -1 else np.random.randint(100)
     cfg["need_plan"] = True
-    cfg["save_data"] = False
+    cfg["save_data"] = bool(args.save_data)
 
     # Embodiment setup (same as collect_data)
     embodiment_type = cfg.get("embodiment", ["aloha-agilex"])
@@ -180,6 +184,12 @@ def main():
     if rollout:
         print("Rolling out task (play_once)...")
         env.play_once()
+        if env.save_data:
+
+            env.ep_num = f"_{env.__class__.__name__}_{env.ep_num}"
+            env.close_env(clear_cache=True)
+            env.merge_pkl_to_hdf5_video()
+            env.remove_data_cache()
         print("Rollout done. Close the viewer window to exit.")
     else:
         print("Scene ready. Close the viewer window to exit.")
@@ -188,7 +198,11 @@ def main():
         env.scene.step()
         env.scene.update_render()
         viewer.render()
-    
+        
+
+
+
+
     print(f"Success: {env.check_success()}")
 
     env.close_env()
