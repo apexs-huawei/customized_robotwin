@@ -455,6 +455,7 @@ def get_place_pose(
     actor_axis: np.ndarray | list = [1, 0, 0],
     actor_axis_type: Literal["actor", "world"] = "actor",
     z_transform: bool = True,
+    local_up_axis: np.ndarray | list | None = None,
 ) -> list:
     """
     获取物体应当被放置到的位置
@@ -491,7 +492,13 @@ def get_place_pose(
     # 将物体的 z 轴与给定坐标的 z 轴对齐
     actor2world = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]).T
     if z_transform:
-        z_align_matrix = get_align_matrix(actor_pose_mat[:3, :3] @ actor2world[:3, 2], target_z)
+        if local_up_axis is None:
+            # Legacy behavior: use the historical remapped local up axis.
+            up_axis_world = actor_pose_mat[:3, :3] @ actor2world[:3, 2]
+        else:
+            up_axis_local = np.array(local_up_axis, dtype=np.float64).reshape(3)
+            up_axis_world = actor_pose_mat[:3, :3] @ up_axis_local
+        z_align_matrix = get_align_matrix(up_axis_world, target_z)
     else:
         z_align_matrix = get_align_matrix(actor_pose_mat[:3, 2], target_z)
     actor_pose_mat[:3, :3] = z_align_matrix @ actor_pose_mat[:3, :3]

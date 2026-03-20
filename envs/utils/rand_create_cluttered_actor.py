@@ -187,8 +187,10 @@ def get_cluttered_objects_subset(env_name: str, entities_on_scene: list):
 
 def get_cluttered_objects_subset_2(env_name: str, distribution: str, entities_on_scene: list):
     """
-    Variant of get_cluttered_objects_subset that separates obstacle names into
-    "short" and "tall" groups based on the task config.
+    Load cluttered object info for the obstacle objects of the given env from
+    benchmark/bench_task_config/task_objects.yml. Only includes model ids listed
+    for each obstacle. Excludes objects already in entities_on_scene. Uses scales
+    from the YAML to compute params.
 
     It returns:
         - cluttered_objects_info: dict model_name -> {ids, type, root, params}
@@ -261,9 +263,9 @@ def get_cluttered_objects_subset_2(env_name: str, distribution: str, entities_on
                     if isinstance(obj_scale_entry, dict):
                         scale_val = obj_scale_entry.get(str(model_id), None)
                         if scale_val is None:
-                            scale_val = model_config.get("scale", [1.0, 1.0, 1.0])
-                            scale_val = scale_val[0]
-                        scale = [float(scale_val), float(scale_val), float(scale_val)]
+                            scale = model_config.get("scale", [1.0, 1.0, 1.0])
+                        else:
+                            scale = [float(scale_val), float(scale_val), float(scale_val)]
                     else:
                         scale = model_config.get("scale", [1.0, 1.0, 1.0])
 
@@ -297,6 +299,87 @@ def get_cluttered_objects_subset_2(env_name: str, distribution: str, entities_on
     cluttered_objects_name_tall = sorted(set(cluttered_objects_name_tall))
 
     return cluttered_objects_info, cluttered_objects_name_short, cluttered_objects_name_tall
+
+
+def get_target_objects_subset(env_name: str, distribution: str):
+    """
+    Load target object info for the given env/distribution from
+    benchmark/bench_task_config/task_objects.yml.
+
+    Similar to get_cluttered_objects_subset_2, but:
+      - reads `targets` instead of `obstacles`
+      - does NOT filter out entities already on scene
+
+    Returns:
+        target_objects_info: dict model_name -> {ids, type, root, params}
+    """
+    task_cfg_path = Path(f"{os.environ['BENCH_ROOT']}/bench_task_config/task_objects.yml")
+    with open(task_cfg_path, "r", encoding="utf-8") as f:
+        task_cfg = yaml.safe_load(f) or {}
+
+    scales_cfg = task_cfg.get("scales", {}) or {}
+    distribution_cfg = task_cfg.get(distribution) or {}
+    env_cfg = distribution_cfg.get(env_name) or {}
+    targets_cfg = env_cfg.get("targets") or {}
+
+    if not targets_cfg:
+        return {}
+
+    target_objects_info = {}
+    objects_dir = Path("./assets/objects")
+
+    # target name -> allowed model id strings
+    allowed_ids_by_obj = {
+        obj_name: set(str(i) for i in id_list)
+        for obj_name, id_list in targets_cfg.items()
+    }
+
+    for model_name in sorted(allowed_ids_by_obj.keys()):
+        model_dir = objects_dir / model_name
+        allowed_ids = allowed_ids_by_obj.get(model_name, set())
+        model_id_list = []
+        params = {}
+
+        for model_id in allowed_ids:
+            model_cfg = model_dir / f"model_data{model_id}.json"
+            try:
+                model_config = json.load(open(model_cfg, "r", encoding="utf-8"))
+                if "center" not in model_config or "extents" not in model_config:
+                    continue
+                center = model_config["center"]
+                extents = model_config["extents"]
+
+                obj_scale_entry = scales_cfg.get(model_name)
+                if isinstance(obj_scale_entry, dict):
+                    scale_val = obj_scale_entry.get(str(model_id), None)
+                    if scale_val is None:
+                        scale = model_config.get("scale", [1.0, 1.0, 1.0])
+                    else:
+                        scale = [float(scale_val), float(scale_val), float(scale_val)]
+                else:
+                    scale = model_config.get("scale", [1.0, 1.0, 1.0])
+
+                params[model_id] = {
+                    "z_max": (extents[1] + center[1]) * scale[1],
+                    "radius": (extents[0] * scale[0] + extents[2] * scale[2]) / 4,
+                    "z_offset": 0,
+                    "scale": scale,
+                }
+                model_id_list.append(model_id)
+            except Exception as e:
+                print(f"Error loading model config {model_cfg}: {e}")
+
+        if len(model_id_list) == 0:
+            continue
+
+        model_id_list.sort()
+        target_objects_info[model_name] = {
+            "ids": model_id_list,
+            "type": "glb",
+            "root": f"objects/{model_name}",
+            "params": params,
+        }
+    return target_objects_info
 
 
 cluttered_objects_info, cluttered_objects_list, same_obj = get_all_cluttered_objects()

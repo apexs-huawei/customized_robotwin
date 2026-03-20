@@ -673,7 +673,7 @@ def create_actor(
         scene,
         pose: sapien.Pose,
         modelname: str,
-        scale: float | int = None,
+        scale = None,
         convex=False,
         is_static=False,
         model_id=0,
