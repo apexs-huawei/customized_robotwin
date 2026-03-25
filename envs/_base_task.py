@@ -851,6 +851,11 @@ class Base_Task(gym.Env):
         if save_freq != None:
             self._take_picture()
 
+        if left_success:
+            self._log_planned_arm_trajectory("left", left_result, "together_move_to_pose")
+        if right_success:
+            self._log_planned_arm_trajectory("right", right_result, "together_move_to_pose")
+
         now_left_id = 0
         now_right_id = 0
         i = 0
@@ -974,6 +979,7 @@ class Base_Task(gym.Env):
                     if self.plan_success is False:
                         return False
 
+            self._log_planned_arm_joints(control_seq)
             self.take_dense_action(control_seq)
 
         return True
@@ -1232,7 +1238,7 @@ class Base_Task(gym.Env):
         self,
         actor: Actor,
         arm_tag: ArmTag,
-        target_pose: list | np.ndarray,
+        target_pose: list | np.ndarray | sapien.Pose,
         constrain: Literal["free", "align", "auto"] = "auto",
         align_axis: list[np.ndarray] | np.ndarray | list = None,
         actor_axis: np.ndarray | list = [1, 0, 0],
@@ -1320,7 +1326,7 @@ class Base_Task(gym.Env):
         self,
         actor: Actor,
         arm_tag: ArmTag,
-        target_pose: list | np.ndarray,
+        target_pose: list | np.ndarray | sapien.Pose,
         functional_point_id: int = None,
         pre_dis: float = 0.1,
         dis: float = 0.02,
@@ -1346,6 +1352,12 @@ class Base_Task(gym.Env):
                 pre_dis=dis,
                 **args,
             )
+            if os.environ.get("ROBOTWIN_LOG_MOVE", "") == "1":
+                _tp = transforms._toPose(target_pose)
+                _tp_vec = np.concatenate([np.asarray(_tp.p, dtype=np.float64), np.asarray(_tp.q, dtype=np.float64)])
+                print(f"[place_actor] target_pose={np.round(_tp_vec, 4)}")
+                print(f"[place_actor] pre_dis={pre_dis} dis={dis} place_pre_pose={np.round(np.asarray(place_pre_pose, dtype=float), 4)}")
+                print(f"[place_actor] place_pose={np.round(np.asarray(place_pose, dtype=float), 4)}")
         else:
             place_pre_pose = [0, 0, 0, 0, 0, 0, 0]
             place_pose = [0, 0, 0, 0, 0, 0, 0]
@@ -1353,6 +1365,7 @@ class Base_Task(gym.Env):
         actions = [
             Action(arm_tag, "move", target_pose=place_pre_pose),
             Action(arm_tag, "move", target_pose=place_pose),
+            # Action(arm_tag, "move", target_pose=place_pose, constraint_pose=[1, 1, 1, 0, 0, 0]),
         ]
         if is_open:
             actions.append(Action(arm_tag, "open", target_gripper_pos=1.0))
@@ -1414,6 +1427,38 @@ class Base_Task(gym.Env):
             raise ValueError(f'arm_tag must be either "left" or "right", not {arm_tag}')
 
     # =========================================================== Control Robot ===========================================================
+
+    def _log_planned_arm_trajectory(self, arm_tag: str, arm_result, context: str) -> None:
+        """
+        Print planned joint start/goal (position[0] / [-1]) and EE (FK from those rows).
+        Enable with: ROBOTWIN_LOG_MOVE=1
+        """
+        if os.environ.get("ROBOTWIN_LOG_MOVE", "") != "1":
+            return
+        if arm_result is None or arm_result.get("status") != "Success":
+            return
+        pos = arm_result.get("position")
+        if pos is None:
+            return
+        pos = np.asarray(pos)
+        if pos.size == 0 or pos.shape[0] == 0:
+            return
+        start = np.round(pos[0], 4)
+        goal = np.round(pos[-1], 4)
+        print(f"[{context}] {arm_tag}_arm planned joint start: {start}")
+        print(f"[{context}] {arm_tag}_arm planned joint goal:  {goal}")
+        try:
+            ee_start = np.round(np.asarray(self.robot.get_ee_pose_from_planned_arm_joints(arm_tag, pos[0])), 4)
+            ee_goal = np.round(np.asarray(self.robot.get_ee_pose_from_planned_arm_joints(arm_tag, pos[-1])), 4)
+            print(f"[{context}] {arm_tag}_arm planned EE start: {ee_start}")
+            print(f"[{context}] {arm_tag}_arm planned EE goal:  {ee_goal}")
+        except Exception as e:
+            print(f"[{context}] {arm_tag}_arm planned EE (FK) failed: {e}")
+
+    def _log_planned_arm_joints(self, control_seq: dict, context: str = "move") -> None:
+        """Log left/right arm planned trajectories from a control_seq (see _log_planned_arm_trajectory)."""
+        self._log_planned_arm_trajectory("left", control_seq.get("left_arm"), context)
+        self._log_planned_arm_trajectory("right", control_seq.get("right_arm"), context)
 
     def take_dense_action(self, control_seq, save_freq=-1):
         """

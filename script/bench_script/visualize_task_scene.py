@@ -4,7 +4,7 @@ Uses environments from bench_envs and the same config layout as collect_data.
 
 USAGE:
     Run this script from the benchmark folder:
-    
+
     cd benchmark
     source set_env.sh  # or set ROBOTWIN_ROOT and BENCH_ROOT manually
     python bench_script/visualize_task_scene.py <task_name> <task_config> [options]
@@ -12,10 +12,10 @@ USAGE:
 EXAMPLES:
     # Basic usage with default seed
     python bench_script/visualize_task_scene.py grab_roller_thing bench_demo_clean
-    
+
     # With custom seed
     python bench_script/visualize_task_scene.py grab_roller_thing bench_demo_clean --seed 42
-    
+
     # With custom render frequency
     python bench_script/visualize_task_scene.py grab_roller_thing bench_demo_clean --render-freq 5
 
@@ -25,15 +25,30 @@ EXAMPLES:
     # Roll out the task (run play_once) then view
     python bench_script/visualize_task_scene.py put_away_stapler bench_demo_clean --rollout
 
+    # With explicit bench subdir (for tasks under office/, study/, etc.)
+    python bench_script/visualize_task_scene.py mouse_on_pad bench_demo_clean --bench-subdir office --rollout --seed 0
+
+    # Run headless (no GUI)
+    python bench_script/visualize_task_scene.py grab_roller_thing bench_demo_clean --no-render
+    python bench_script/visualize_task_scene.py grab_roller_thing bench_demo_clean --no-render --rollout
+
+    # Save RGB on first planning failure (move_step = Nth top-level env.move in play_once)
+    python bench_script/visualize_task_scene.py move_books_onto_table bench_demo_clean --bench-subdir study \\
+        --rollout --save-plan-fail-dir ./plan_fail_debug --plan-fail-camera head_camera
+
 ARGUMENTS:
     task_name      Task module name from bench_envs (e.g. grab_roller_thing)
     task_config    Task config name without .yml extension (e.g. bench_demo_clean)
 
 OPTIONS:
-    --seed N           Random seed for scene initialization (default: 0)
-    --render-freq N    Render every N simulation steps (default: 1)
-    --viewer-camera N  Match viewer to this scene camera name (default: demo_camera; use default to keep built-in pose)
-    --rollout          Run play_once() to roll out the task; if not set, only view initial setup
+    --seed N                   Random seed for scene initialization (default: 0)
+    --render-freq N            Render every N simulation steps (default: 1)
+    --viewer-camera N          Match viewer to this scene camera name (default: demo_camera; use default to keep built-in pose)
+    --rollout                  Run play_once() to roll out the task; if not set, only view initial setup
+    --bench-subdir S           Subdirectory under bench_envs (e.g. office, study). If set, imports bench_envs.<S>.<task_name>
+    --no-render                Disable simulator rendering (run headless). Default: render on.
+    --save-plan-fail-dir PATH  With --rollout, save camera RGB when a top-level env.move() fails planning
+    --plan-fail-camera NAME    Camera key for save_camera_rgb (default: head_camera)
 
 NOTES:
     - The script automatically changes directory to customized_robotwin for proper path resolution
@@ -44,6 +59,7 @@ import sys
 import os
 import argparse
 import importlib
+import time
 import yaml
 from pathlib import Path
 import numpy as np
@@ -93,28 +109,86 @@ def sync_viewer_to_scene_camera(env, camera_name: str) -> bool:
     return True
 
 
-def get_env_class(task_name):
-    """Load task env class from bench_envs, or envs if not in bench_envs. Handles class name matching module or not."""
-    try:
-        envs_module = importlib.import_module(f"bench_envs.{task_name}")
-    except ModuleNotFoundError:
-        envs_module = importlib.import_module(f"envs.{task_name}")
+def _extract_task_class(envs_module, task_name):
+    """Extract task class from module, handling class names that differ from module name."""
     try:
         return getattr(envs_module, task_name)
     except AttributeError:
-        # Class name may differ from module name (e.g. module grab_roller_thing, class grab_roller)
         from envs._base_task import Base_Task
         for name in dir(envs_module):
             obj = getattr(envs_module, name)
             if isinstance(obj, type) and issubclass(obj, Base_Task) and obj is not Base_Task:
                 return obj
-        raise SystemExit(f"No task class found in bench_envs.{task_name}")
+        raise SystemExit(f"No task class found in {envs_module.__name__}")
+
+
+def get_env_class(task_name, bench_subdir=None):
+    """Load task env class from bench_envs, or envs if not in bench_envs."""
+    # Known bench_envs subpackages (office, study, etc.)
+    BENCH_SUBDIRS = ["office", "study"]
+
+    if bench_subdir:
+        # Explicit subdir: try only bench_envs.{subdir}.{task_name}
+        try:
+            envs_module = importlib.import_module(f"bench_envs.{bench_subdir}.{task_name}")
+            return _extract_task_class(envs_module, task_name)
+        except ModuleNotFoundError:
+            raise SystemExit(f"Task '{task_name}' not found in bench_envs.{bench_subdir}")
+
+    # Try bench_envs.{task_name} first (flat structure)
+    try:
+        envs_module = importlib.import_module(f"bench_envs.{task_name}")
+        return _extract_task_class(envs_module, task_name)
+    except ModuleNotFoundError:
+        pass
+
+    # Try bench_envs.{subdir}.{task_name} for each known subdir
+    for subdir in BENCH_SUBDIRS:
+        try:
+            envs_module = importlib.import_module(f"bench_envs.{subdir}.{task_name}")
+            return _extract_task_class(envs_module, task_name)
+        except ModuleNotFoundError:
+            continue
+
+    # Fallback to envs
+    try:
+        envs_module = importlib.import_module(f"envs.{task_name}")
+        return _extract_task_class(envs_module, task_name)
+    except ModuleNotFoundError:
+        raise SystemExit(f"No task class found for '{task_name}' in bench_envs or envs")
 
 
 def get_embodiment_config(robot_file):
     robot_config_file = os.path.join(robot_file, "config.yml")
     with open(robot_config_file, "r", encoding="utf-8") as f:
         return yaml.load(f.read(), Loader=yaml.FullLoader)
+
+
+def _install_plan_fail_camera_saver(env, out_dir: Path, task_name: str, seed: int, camera_name: str):
+    """
+    Wrap env.move: on the first planning failure in a rollout, save RGB. move_step counts each
+    top-level move() call in play_once (not inner simulation frames).
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    move_step = [0]
+    orig_move = env.move
+
+    def wrapped_move(*args, **kwargs):
+        move_step[0] += 1
+        was_ok = env.plan_success
+        ret = orig_move(*args, **kwargs)
+        if was_ok and ret is False:
+            stem = f"{task_name}_seed{seed}_move_step_{move_step[0]}"
+            path = out_dir / f"{stem}.png"
+            try:
+                env.save_camera_rgb(str(path), camera_name=camera_name)
+                print(f"[plan-fail] saved {path} (move step {move_step[0]})")
+            except Exception as e:
+                print(f"[plan-fail] could not save camera ({camera_name}): {e}")
+        return ret
+
+    env.move = wrapped_move
 
 
 def main():
@@ -124,6 +198,8 @@ def main():
     parser.add_argument("--seed", type=int, default=-1, help="Random seed for scene")
     parser.add_argument("--render-freq", type=int, default=3, help="Render every N steps (default 1)")
     parser.add_argument("--rollout", action="store_true", help="Run play_once() to roll out the task")
+    parser.add_argument("--bench-subdir", type=str, default=None,
+                       help="Subdirectory under bench_envs (e.g. office, study)")
     parser.add_argument("--save_data", action="store_true", help="Save the visualization")
     parser.add_argument(
         "--viewer-camera",
@@ -134,6 +210,20 @@ def main():
             "e.g. demo_camera, head_camera, front_camera. Use 'default' to keep setup_scene viewer xyz/rpy."
         ),
     )
+    parser.add_argument("--no-render", action="store_true",
+                       help="Disable simulator rendering (run headless). Default: render on.")
+    parser.add_argument(
+        "--save-plan-fail-dir",
+        type=str,
+        default=None,
+        help="If set with --rollout, save camera RGB when a top-level env.move() fails planning",
+    )
+    parser.add_argument(
+        "--plan-fail-camera",
+        type=str,
+        default="demo_camera",
+        help="Camera name passed to save_camera_rgb (default: demo_camera)",
+    )
 
     args = parser.parse_args()
 
@@ -142,10 +232,11 @@ def main():
     seed = args.seed
     render_freq = args.render_freq
     rollout = args.rollout
-
+    bench_subdir = args.bench_subdir
+    enable_render = not args.no_render
 
     # Load env class from bench_envs
-    env_class = get_env_class(task_name)
+    env_class = get_env_class(task_name, bench_subdir=bench_subdir)
 
     if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
         config_path = bench_root / "bench_task_config" / f"{task_config}.yml"
@@ -158,7 +249,7 @@ def main():
         cfg = yaml.load(f.read(), Loader=yaml.FullLoader)
 
     cfg["task_name"] = task_name
-    cfg["render_freq"] = render_freq
+    cfg["render_freq"] = render_freq if enable_render else 0
     cfg["now_ep_num"] = 0
     cfg["seed"] = seed if seed != -1 else np.random.randint(100)
     cfg["need_plan"] = True
@@ -192,65 +283,62 @@ def main():
     cfg["right_embodiment_config"] = get_embodiment_config(cfg["right_robot_file"])
 
     # Build env and setup scene with viewer
-    # print(f"Loading task: {task_name} with config: {task_config} (seed={seed})")
     env = env_class()
     env.setup_demo(**cfg)
 
-    if not getattr(env, "render_freq", 0) or getattr(env, "viewer", None) is None:
+    if enable_render and (not getattr(env, "render_freq", 0) or getattr(env, "viewer", None) is None):
         print("Warning: viewer not created (render_freq was 0?). Exiting.")
         env.close_env()
         return
 
-    sync_viewer_to_scene_camera(env, args.viewer_camera)
+    if enable_render:
+        sync_viewer_to_scene_camera(env, args.viewer_camera)
 
-    # # viewing camera --------------------------------------------
-    # env._update_render()
-    # env.cameras.update_picture()
-    # rgb_dict = env.cameras.get_rgb()
-
-    # # e.g. head_camera, front_camera, left_camera, right_camera, or your new camera name
-    # img = rgb_dict["demo_camera"]["rgb"]
-    # if img.dtype != np.uint8:
-    #     img = (img * 255).clip(0, 255).astype(np.uint8)
-    # # OpenCV uses BGR
-    # import cv2
-    # img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    # try:
-    #     while True:
-    #         cv2.imshow("head_camera", img_bgr)
-    #         if cv2.waitKey(1) & 0xFF == ord('q'):
-    #             break
-    # except KeyboardInterrupt:
-    #     print("Interrupted by Ctrl+C")
-    # finally:
-    #     cv2.destroyAllWindows()
-    # # -------------------------------------------------------
-
-    viewer = env.viewer
     if rollout:
         print("Rolling out task (play_once)...")
+        if args.save_plan_fail_dir:
+            _install_plan_fail_camera_saver(
+                env,
+                Path(args.save_plan_fail_dir),
+                task_name,
+                cfg["seed"],
+                args.plan_fail_camera,
+            )
         env.play_once()
         if env.save_data:
-
             env.ep_num = f"_{env.__class__.__name__}_{env.ep_num}"
             env.close_env(clear_cache=True)
             env.merge_pkl_to_hdf5_video()
             env.remove_data_cache()
-        print("Rollout done. Close the viewer window to exit.")
+        print("Rollout done.")
+
+    if enable_render:
+        viewer = env.viewer
+        if not rollout:
+            print("Scene ready. Close the viewer window to exit.")
+        else:
+            print("Close the viewer window to exit.")
+        while not viewer.closed:
+            env.scene.step()
+            env.scene.update_render()
+            viewer.render()
     else:
-        print("Scene ready. Close the viewer window to exit.")
-
-    while not viewer.closed:
-        env.scene.step()
-        env.scene.update_render()
-        viewer.render()
-        
-
-
-
+        if not rollout:
+            print("Scene ready (headless). Press Ctrl+C to exit.")
+        else:
+            print("Rollout done (headless). Exiting.")
+            env.close_env()
+            print(f"Success: {env.check_success()}")
+            print("Done.")
+            return
+        try:
+            while True:
+                env.scene.step()
+                time.sleep(0.01)
+        except KeyboardInterrupt:
+            pass
 
     print(f"Success: {env.check_success()}")
-
     env.close_env()
     print("Done.")
 
