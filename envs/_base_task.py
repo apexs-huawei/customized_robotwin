@@ -1239,7 +1239,7 @@ class Base_Task(gym.Env):
         actor: Actor,
         arm_tag: ArmTag,
         target_pose: list | np.ndarray | sapien.Pose,
-        constrain: Literal["free", "align", "auto"] = "auto",
+        constrain: Literal["free", "align", "auto", "target"] = "auto",
         align_axis: list[np.ndarray] | np.ndarray | list = None,
         actor_axis: np.ndarray | list = [1, 0, 0],
         actor_axis_type: Literal["actor", "world"] = "actor",
@@ -1247,7 +1247,6 @@ class Base_Task(gym.Env):
         pre_dis: float = 0.1,
         pre_dis_axis: Literal["grasp", "fp"] | np.ndarray | list = "grasp",
     ):
-
         if not self.plan_success:
             return [-1, -1, -1, -1, -1, -1, -1]
 
@@ -1260,7 +1259,7 @@ class Base_Task(gym.Env):
             z_transform = True
 
         end_effector_pose = (self.robot.get_left_ee_pose() if arm_tag == "left" else self.robot.get_right_ee_pose())
-
+        
         if constrain == "auto":
             grasp_direct_vec = place_start_pose.p - end_effector_pose[:3]
             if np.abs(np.dot(grasp_direct_vec, [0, 0, 1])) <= 0.1:
@@ -1294,6 +1293,7 @@ class Base_Task(gym.Env):
                 align_axis=align_axis,
                 z_transform=z_transform,
             )
+            
         start2target = (transforms._toPose(place_pose).to_transformation_matrix()[:3, :3]
                         @ place_start_pose.to_transformation_matrix()[:3, :3].T)
         target_point = (start2target @ (actor_matrix[:3, 3] - place_start_pose.p).reshape(3, 1)).reshape(3) + np.array(
