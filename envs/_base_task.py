@@ -414,6 +414,17 @@ class Base_Task(gym.Env):
         self.scene.step()  # run a physical step
         self.scene.update_render()  # sync pose from SAPIEN to renderer
 
+        # Default viewer alignment: use countertop camera if available.
+        if self.render_freq and hasattr(self, "viewer") and self.viewer is not None:
+            try:
+                static_names = getattr(self.cameras, "static_camera_name", []) or []
+                if "countertop_camera" in static_names:
+                    cam_idx = static_names.index("countertop_camera")
+                    cam = self.cameras.static_camera_list[cam_idx]
+                    self.viewer.set_camera_pose(cam.entity.get_pose())
+            except Exception:
+                pass
+
     # =========================================================== Sapien ===========================================================
 
     def _update_render(self):

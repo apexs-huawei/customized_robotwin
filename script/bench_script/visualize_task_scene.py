@@ -19,6 +19,9 @@ EXAMPLES:
     # With custom render frequency
     python bench_script/visualize_task_scene.py grab_roller_thing bench_demo_clean --render-freq 5
 
+    # Viewer aligned to a scene camera (see embodiment static_camera_list + bench office_config)
+    python bench_script/visualize_task_scene.py put_bottle_in_fridge bench_demo_clean --viewer-camera demo_camera
+
     # Roll out the task (run play_once) then view
     python bench_script/visualize_task_scene.py put_away_stapler bench_demo_clean --rollout
 
@@ -29,6 +32,7 @@ ARGUMENTS:
 OPTIONS:
     --seed N           Random seed for scene initialization (default: 0)
     --render-freq N    Render every N simulation steps (default: 1)
+    --viewer-camera N  Match viewer to this scene camera name (default: demo_camera; use default to keep built-in pose)
     --rollout          Run play_once() to roll out the task; if not set, only view initial setup
 
 NOTES:
@@ -56,6 +60,37 @@ robotwin_root = Path(os.environ["ROBOTWIN_ROOT"])
 os.chdir(robotwin_root)  # Change to customized_robotwin for proper path resolution
 
 from envs import CONFIGS_PATH  # from customized_robotwin
+
+
+def sync_viewer_to_scene_camera(env, camera_name: str) -> bool:
+    """
+    Match the interactive viewer frustum to an existing scene camera (same pose as data-collection cams).
+    ``camera_name`` must appear in ``env.cameras.static_camera_name`` (e.g. head_camera, demo_camera).
+    """
+    if not camera_name or str(camera_name).lower() in ("default", "none", ""):
+        return False
+    viewer = getattr(env, "viewer", None)
+    cams = getattr(env, "cameras", None)
+    if viewer is None or cams is None:
+        print("Warning: cannot sync viewer (missing viewer or cameras).")
+        return False
+    names = getattr(cams, "static_camera_name", None) or []
+    if camera_name not in names:
+        print(
+            f"Warning: viewer-camera '{camera_name}' not in env static cameras {names}. "
+            "Using default viewer pose; pass a valid name or --viewer-camera default."
+        )
+        return False
+    idx = names.index(camera_name)
+    cam = cams.static_camera_list[idx]
+    try:
+        pose = cam.entity.get_pose()
+        viewer.set_camera_pose(pose)
+    except Exception as e:
+        print(f"Warning: failed to sync viewer to '{camera_name}': {e}")
+        return False
+    print(f"Viewer pose aligned with scene camera '{camera_name}'.")
+    return True
 
 
 def get_env_class(task_name):
@@ -90,6 +125,15 @@ def main():
     parser.add_argument("--render-freq", type=int, default=3, help="Render every N steps (default 1)")
     parser.add_argument("--rollout", action="store_true", help="Run play_once() to roll out the task")
     parser.add_argument("--save_data", action="store_true", help="Save the visualization")
+    parser.add_argument(
+        "--viewer-camera",
+        type=str,
+        default="demo_camera",
+        help=(
+            "Scene camera name to copy the viewer pose from (see embodiment static_camera_list), "
+            "e.g. demo_camera, head_camera, front_camera. Use 'default' to keep setup_scene viewer xyz/rpy."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -156,7 +200,9 @@ def main():
         print("Warning: viewer not created (render_freq was 0?). Exiting.")
         env.close_env()
         return
-    
+
+    sync_viewer_to_scene_camera(env, args.viewer_camera)
+
     # # viewing camera --------------------------------------------
     # env._update_render()
     # env.cameras.update_picture()
