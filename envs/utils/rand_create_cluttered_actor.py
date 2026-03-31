@@ -90,102 +90,7 @@ def get_all_cluttered_objects():
     return cluttered_objects_info, cluttered_objects_name, same_obj
 
 
-def get_cluttered_objects_subset(env_name: str, entities_on_scene: list):
-    """
-    Load cluttered object info for the obstacle objects of the given env from
-    benchmark/bench_task_config/task_objects.yml. Only includes model ids listed
-    for each obstacle. Excludes objects already in entities_on_scene. Uses scales
-    from the YAML to compute params.
-
-    Args:
-        env_name: Environment key in task_objects.yml (e.g. "office").
-        entities_on_scene: list of entity/model names already on scene (same_obj is used to expand).
-
-    Returns:
-        cluttered_objects_info: dict of model_name -> {ids, type, root, params}
-        cluttered_objects_name: sorted list of model names included.
-    """
-    same_obj = json.load(open(Path(f"{os.environ['BENCH_ROOT']}/bench_task_config/object_type_equivalencies.json"), "r", encoding="utf-8"))
-
-    # loading scales and obstacles from task_objects.yml
-    task_cfg_path = Path(f"{os.environ['BENCH_ROOT']}/bench_task_config/task_objects.yml")
-    with open(task_cfg_path, "r", encoding="utf-8") as f:
-        task_cfg = yaml.safe_load(f) or {}
-    scales_cfg = task_cfg.get("scales", {}) or {}
-    env_cfg = task_cfg.get(env_name) or {}
-    obstacles_cfg = env_cfg.get("obstacles") or {}
-
-    if not obstacles_cfg:
-        return {}, []
-
-    # obstacle name -> allowed model id strings (e.g. {"017_calculator": {"0","1",...}})
-    allowed_ids_by_obj = {
-        obj_name: set(str(i) for i in id_list)
-        for obj_name, id_list in obstacles_cfg.items()
-    }
-    object_names = list(allowed_ids_by_obj.keys())
-
-    # filter out models that are already on scene
-    models_in_use = set()
-    for entity_name in entities_on_scene:
-        if same_obj.get(entity_name) is not None:
-            models_in_use.update(same_obj[entity_name])
-        models_in_use.add(entity_name)
-
-    requested_names = set(object_names)
-    allowed_names = requested_names - models_in_use
-
-    cluttered_objects_info = {}
-    objects_dir = Path("./assets/objects")
-
-    # load models and compute params
-    for model_name in sorted(allowed_names):
-        model_dir = objects_dir / model_name
-        allowed_ids = allowed_ids_by_obj.get(model_name, set())
-        model_id_list = []
-        params = {}
-        for model_id in allowed_ids:
-            model_cfg = model_dir / f"model_data{model_id}.json"
-            try:
-                model_config = json.load(open(model_cfg, "r", encoding="utf-8"))
-                if "center" not in model_config or "extents" not in model_config:
-                    continue
-                center = model_config["center"]
-                extents = model_config["extents"]
-
-                obj_scale_entry = scales_cfg.get(model_name)
-                if isinstance(obj_scale_entry, dict):
-                    scale_val = obj_scale_entry.get(str(model_id), 1.0)
-                    scale = [float(scale_val), float(scale_val), float(scale_val)]
-                else:
-                    scale = model_config.get("scale", [1.0, 1.0, 1.0])
-
-                params[model_id] = {
-                    "z_max": (extents[1] + center[1]) * scale[1],
-                    # "radius": max(extents[0] * scale[0], extents[2] * scale[2]) / 2,
-                    "radius": (extents[0] * scale[0] + extents[2] * scale[2]) / 4,
-                    "z_offset": 0,
-                    "scale": scale,
-                }
-                model_id_list.append(model_id)
-            except Exception as e:
-                print(f"Error loading model config {model_cfg}: {e}")
-
-        if len(model_id_list) == 0:
-            continue
-        model_id_list.sort()
-        cluttered_objects_info[model_name] = {
-            "ids": model_id_list,
-            "type": "glb",
-            "root": f"objects/{model_name}",
-            "params": params,
-        }
-
-    cluttered_objects_name = sorted(cluttered_objects_info.keys())
-    return cluttered_objects_info, cluttered_objects_name
-
-
-def get_cluttered_objects_subset_2(env_name: str, distribution: str, entities_on_scene: list):
+def get_obstacle_objects_subset(env_name: str, distribution: str, entities_on_scene: list):
     """
     Load cluttered object info for the obstacle objects of the given env from
     benchmark/bench_task_config/task_objects.yml. Only includes model ids listed
@@ -305,10 +210,6 @@ def get_target_objects_subset(env_name: str, distribution: str):
     """
     Load target object info for the given env/distribution from
     benchmark/bench_task_config/task_objects.yml.
-
-    Similar to get_cluttered_objects_subset_2, but:
-      - reads `targets` instead of `obstacles`
-      - does NOT filter out entities already on scene
 
     Returns:
         target_objects_info: dict model_name -> {ids, type, root, params}
