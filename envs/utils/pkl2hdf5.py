@@ -96,10 +96,10 @@ def create_hdf5_from_dict(hdf5_group, data_dict):
 def _get_video_camera_key(data_list):
     """Get camera key for video (demo_camera, head_camera, countertop_camera, or front_camera)."""
     obs = data_list.get("observation", {})
-    for key in ("demo_camera", "head_camera", "countertop_camera", "front_camera"):
+    for key in ("countertop_camera", "demo_camera", "head_camera", "front_camera"):
         if key in obs and "rgb" in obs[key]:
             return key
-    raise KeyError("No suitable camera (demo_camera, head_camera, countertop_camera, front_camera) found in observation")
+    raise KeyError("No suitable camera (countertop_camera, demo_camera, head_camera, front_camera) found in observation")
 
 
 def pkl_files_to_hdf5_and_video(pkl_files, hdf5_path, video_path):
