@@ -93,17 +93,58 @@ def create_hdf5_from_dict(hdf5_group, data_dict):
                 print(f"Error storing value for key '{key}': {e}")
 
 
+def _get_video_camera_key(data_list):
+    """Get camera key for video (demo_camera, head_camera, countertop_camera, or front_camera)."""
+    obs = data_list.get("observation", {})
+    for key in ("countertop_camera", "demo_camera", "head_camera", "front_camera"):
+        if key in obs and "rgb" in obs[key]:
+            return key
+    raise KeyError("No suitable camera (countertop_camera, demo_camera, head_camera, front_camera) found in observation")
+
+
 def pkl_files_to_hdf5_and_video(pkl_files, hdf5_path, video_path):
     data_list = parse_dict_structure(load_pkl_file(pkl_files[0]))
     for pkl_file_path in pkl_files:
         pkl_file = load_pkl_file(pkl_file_path)
         append_data_to_structure(data_list, pkl_file)
 
-    # Episode MP4 uses demo_camera_2 only; HDF5 still stores all observation cameras from PKL.
-    images_to_video(np.array(data_list["observation"]["demo_camera_2"]["rgb"]), out_path=video_path)
+    cam_key = _get_video_camera_key(data_list)
+    images_to_video(np.array(data_list["observation"][cam_key]["rgb"]), out_path=video_path)
 
     with h5py.File(hdf5_path, "w") as f:
         create_hdf5_from_dict(f, data_list)
+
+
+def process_folder_to_video(folder_path, video_path):
+    """Create only MP4 video from pkl cache, without HDF5."""
+    pkl_files = []
+    for fname in os.listdir(folder_path):
+        if fname.endswith(".pkl") and fname[:-4].isdigit():
+            pkl_files.append((int(fname[:-4]), os.path.join(folder_path, fname)))
+
+    if not pkl_files:
+        raise FileNotFoundError(f"No valid .pkl files found in {folder_path}")
+
+    pkl_files.sort()
+    pkl_files = [f[1] for f in pkl_files]
+
+    expected = 0
+    for f in pkl_files:
+        num = int(os.path.basename(f)[:-4])
+        if num != expected:
+            raise ValueError(f"Missing file {expected}.pkl")
+        expected += 1
+
+    data_list = parse_dict_structure(load_pkl_file(pkl_files[0]))
+    for pkl_file_path in pkl_files:
+        pkl_file = load_pkl_file(pkl_file_path)
+        append_data_to_structure(data_list, pkl_file)
+
+    cam_key = _get_video_camera_key(data_list)
+    images_to_video(
+        np.array(data_list["observation"][cam_key]["rgb"]),
+        out_path=video_path,
+    )
 
 
 def process_folder_to_hdf5_video(folder_path, hdf5_path, video_path):
