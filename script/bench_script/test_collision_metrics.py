@@ -1,5 +1,6 @@
 """
-Test script for collision metrics: load an office env, run play_once(), save video + collision log.
+Test script for collision metrics: load a bench env (office or study), run play_once(),
+save video + collision log.
 
 USAGE:
     cd customized_robotwin
@@ -9,8 +10,14 @@ USAGE:
     (Ensure your conda/venv with PyYAML, numpy, imageio/cv2 is activated.)
 
 EXAMPLES:
+    # Office tasks
     python script/bench_script/test_collision_metrics.py place_phone_shelf bench_demo_clean
     python script/bench_script/test_collision_metrics.py mouse_on_pad bench_demo_clean --seed 42 --output-dir ./test_output
+    python script/bench_script/test_collision_metrics.py mouse_on_pad bench_demo_clean --bench-subdir office
+
+    # Study tasks
+    python script/bench_script/test_collision_metrics.py move_cup bench_demo_clean --bench-subdir study
+    python script/bench_script/test_collision_metrics.py put_seal_in_box bench_demo_clean --bench-subdir study --scene-id 1
 
 OUTPUTS:
     - <output_dir>/collision_test.mp4       : Video of demo_camera view
@@ -42,12 +49,8 @@ os.chdir(robotwin_root)
 from envs import CONFIGS_PATH
 
 
-def get_env_class(task_name):
-    """Load task env class from bench_envs."""
-    try:
-        envs_module = importlib.import_module(f"bench_envs.{task_name}")
-    except ModuleNotFoundError:
-        envs_module = importlib.import_module(f"envs.{task_name}")
+def _extract_task_class(envs_module, task_name):
+    """Extract task class from module, handling class names that differ from module name."""
     try:
         return getattr(envs_module, task_name)
     except AttributeError:
@@ -56,7 +59,41 @@ def get_env_class(task_name):
             obj = getattr(envs_module, name)
             if isinstance(obj, type) and issubclass(obj, Base_Task) and obj is not Base_Task:
                 return obj
-        raise SystemExit(f"No task class found in bench_envs.{task_name}")
+        raise SystemExit(f"No task class found in {envs_module.__name__}")
+
+
+def get_env_class(task_name, bench_subdir=None):
+    """Load task env class from bench_envs, searching office/study subdirs as needed."""
+    BENCH_SUBDIRS = ["office", "study"]
+
+    if bench_subdir:
+        try:
+            envs_module = importlib.import_module(f"bench_envs.{bench_subdir}.{task_name}")
+            return _extract_task_class(envs_module, task_name)
+        except ModuleNotFoundError:
+            raise SystemExit(f"Task '{task_name}' not found in bench_envs.{bench_subdir}")
+
+    # Try bench_envs.{task_name} first (flat structure)
+    try:
+        envs_module = importlib.import_module(f"bench_envs.{task_name}")
+        return _extract_task_class(envs_module, task_name)
+    except ModuleNotFoundError:
+        pass
+
+    # Try bench_envs.{subdir}.{task_name} for each known subdir
+    for subdir in BENCH_SUBDIRS:
+        try:
+            envs_module = importlib.import_module(f"bench_envs.{subdir}.{task_name}")
+            return _extract_task_class(envs_module, task_name)
+        except ModuleNotFoundError:
+            continue
+
+    # Fallback to envs
+    try:
+        envs_module = importlib.import_module(f"envs.{task_name}")
+        return _extract_task_class(envs_module, task_name)
+    except ModuleNotFoundError:
+        raise SystemExit(f"No task class found for '{task_name}' in bench_envs or envs")
 
 
 def get_embodiment_config(robot_file):
@@ -197,13 +234,17 @@ def main():
         os.environ["ROBOTWIN_BENCH_TASK"] = "bench"
 
     parser = argparse.ArgumentParser(description="Test collision metrics: run task, save video + collision log")
-    parser.add_argument("task_name", type=str, help="Task module (e.g. place_phone_shelf)")
+    parser.add_argument("task_name", type=str, help="Task module (e.g. place_phone_shelf, move_cup)")
     parser.add_argument("task_config", type=str, help="Task config (e.g. bench_demo_clean)")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--output-dir", type=str, default="./collision_test_output", help="Output directory")
     parser.add_argument("--capture-every", type=int, default=5, help="Capture frame every N physics steps")
     parser.add_argument("--contact-image-every", type=int, default=50, help="Save contact debug image every N steps (first contact only)")
     parser.add_argument("--render-freq", type=int, default=0, help="Render freq (0=headless)")
+    parser.add_argument("--bench-subdir", type=str, default=None,
+                        help="Subdirectory under bench_envs (e.g. office, study)")
+    parser.add_argument("--scene-id", type=int, default=None,
+                        help="Scene ID for study tasks (0-2). If not set, chosen randomly.")
     args = parser.parse_args()
 
     task_name = args.task_name
@@ -228,6 +269,8 @@ def main():
     cfg["seed"] = args.seed
     cfg["need_plan"] = True
     cfg["save_data"] = False
+    if args.scene_id is not None:
+        cfg["scene_id"] = args.scene_id
 
     # Embodiment setup
     embodiment_type = cfg.get("embodiment", ["aloha-agilex"])
@@ -258,7 +301,7 @@ def main():
 
     # Build env
     print(f"Loading {task_name} with {task_config} (seed={args.seed})...")
-    env_class = get_env_class(task_name)
+    env_class = get_env_class(task_name, bench_subdir=args.bench_subdir)
     env = env_class()
     env.setup_demo(**cfg)
 

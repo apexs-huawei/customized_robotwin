@@ -450,7 +450,7 @@ def get_product_vector(v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
 def get_place_pose(
     actor_pose: np.ndarray | sapien.Pose | list,
     target_pose: np.ndarray | sapien.Pose | list,
-    constrain: Literal["free", "align"] = "free",
+    constrain: Literal["free", "align", "target"] = "free",
     align_axis: list[np.ndarray] | np.ndarray | list = None,
     actor_axis: np.ndarray | list = [1, 0, 0],
     actor_axis_type: Literal["actor", "world"] = "actor",
@@ -471,14 +471,20 @@ def get_place_pose(
     actor_pose: 物体当前的 pose
     target_pose: 物体应当被放置到的位置
     constrain: 物体的约束类型
-        - free: 无约束
+        - free: 无约束（仍按 target 对齐位置并做 z / up 对齐）
         - align: 物体的 x 轴与给定的世界轴向量集合中点积最小的方向
+        - target: 直接使用 target_pose 的平移与旋转；忽略 actor 与其它对齐参数
     align_axis: 给定的世界轴向量集合，如果设置为 None，默认使用 target_pose 的 x 轴
     actor_axis: 计算点积的 actor 轴，默认使用 x 轴
     actor_axis_type: actor_axis 的类型，默认使用局部坐标系
         - actor: actor_pose 的局部坐标系
         - world: 世界坐标系
     """
+    if constrain == "target":
+        target_pose_mat = _toPose(target_pose).to_transformation_matrix()
+        return target_pose_mat[:3, 3].tolist() + t3d.quaternions.mat2quat(
+            target_pose_mat[:3, :3]
+        ).tolist()
     actor_pose_mat = _toPose(actor_pose).to_transformation_matrix()
     target_pose_mat = _toPose(target_pose).to_transformation_matrix()
 

@@ -610,6 +610,29 @@ class Robot:
         res = (endpose_arr[:3, 3].tolist() + t3d.quaternions.mat2quat(endpose_arr[:3, :3]).tolist())
         return res
 
+    def get_ee_pose_from_planned_arm_joints(self, arm_tag: str, arm_joint_row) -> list:
+        """
+        EE pose in the same convention as get_left_ee_pose / get_right_ee_pose, computed by
+        applying a planned arm joint row via FK (temporary set_qpos; restored after).
+        """
+        entity = self.left_entity if arm_tag == "left" else self.right_entity
+        joint_lst = self.left_arm_joints if arm_tag == "left" else self.right_arm_joints
+        active = entity.get_active_joints()
+        arm_joint_row = np.asarray(arm_joint_row, dtype=np.float64).flatten()
+        if len(arm_joint_row) != len(joint_lst):
+            raise ValueError(
+                f"arm_joint_row length {len(arm_joint_row)} != {len(joint_lst)} for {arm_tag}"
+            )
+        qpos = np.array(entity.get_qpos(), dtype=np.float64)
+        saved = qpos.copy()
+        for i, joint in enumerate(joint_lst):
+            qpos[active.index(joint)] = arm_joint_row[i]
+        entity.set_qpos(qpos)
+        try:
+            return self._trans_endpose(arm_tag=arm_tag, is_endpose=False)
+        finally:
+            entity.set_qpos(saved)
+
     def _entity_qf(self, entity):
         qf = entity.compute_passive_force(gravity=True, coriolis_and_centrifugal=True)
         entity.set_qf(qf)
