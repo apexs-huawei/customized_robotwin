@@ -136,6 +136,8 @@ class Robot:
         else:
             if not isinstance(self.left_planner, CuroboPlanner) or not isinstance(self.right_planner, CuroboPlanner):
                 self.set_planner(scene=scene)
+            self.detach_object(arms_tag="left")
+            self.detach_object(arms_tag="right")
 
         self.init_joints()
 
@@ -706,6 +708,12 @@ class Robot:
         self.right_planner.visualize_attached_objects(right_qpos)
         left_qpos = self.left_entity.get_qpos()
         self.left_planner.visualize_attached_objects(left_qpos)
+    
+    def enable_obstacle(self, enable: bool, names: list[str]):
+        for planner in [self.left_planner, self.right_planner]:
+            for name in names:
+                planner.motion_gen.world_coll_checker.enable_mesh(enable,name=name)
+                planner.motion_gen_batch.world_coll_checker.enable_mesh(enable,name=name)
 
 
 def planner_process_worker(conn, args):
