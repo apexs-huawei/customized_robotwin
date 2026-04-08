@@ -709,11 +709,9 @@ class Robot:
         left_qpos = self.left_entity.get_qpos()
         self.left_planner.visualize_attached_objects(left_qpos)
     
-    def enable_obstacle(self, enable: bool, names: list[str]):
+    def enable_obstacle(self, enable: bool, mesh_names: list[str] = [], obb_names: list[str] = []):
         for planner in [self.left_planner, self.right_planner]:
-            for name in names:
-                planner.motion_gen.world_coll_checker.enable_mesh(enable,name=name)
-                planner.motion_gen_batch.world_coll_checker.enable_mesh(enable,name=name)
+            planner.enable_obstacle(enable, mesh_names=mesh_names, obb_names=obb_names)
 
 
 def planner_process_worker(conn, args):

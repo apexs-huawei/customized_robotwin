@@ -464,6 +464,14 @@ try:
                 
             return scene
 
+        def enable_obstacle(self, enable: bool, mesh_names: list[str] = [], obb_names: list[str] = []):
+            for name in mesh_names:
+                self.motion_gen.world_coll_checker.enable_mesh(enable,name=name)
+                self.motion_gen_batch.world_coll_checker.enable_mesh(enable,name=name)
+            for name in obb_names:
+                self.motion_gen.world_coll_checker.enable_obb(enable, name=name)
+                self.motion_gen_batch.world_coll_checker.enable_obb(enable, name=name)
+
         def attach_object(self, object: dict, curr_joint_pos: list, arms_tag: str):
             """
             Attach an object to the robot in Curobo Planning.
