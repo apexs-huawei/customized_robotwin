@@ -11,6 +11,39 @@ import xml.etree.ElementTree as ET
 import yaml
 
 
+def _model_config_scale_vec3(model_config: dict) -> list[float]:
+    """Normalize model_data.json ``scale`` to a length-3 vector."""
+    default = model_config.get("scale", [1.0, 1.0, 1.0])
+    if isinstance(default, (int, float)):
+        s = float(default)
+        return [s, s, s]
+    if isinstance(default, (list, tuple)):
+        if len(default) == 1:
+            s = float(default[0])
+            return [s, s, s]
+        if len(default) >= 3:
+            return [float(default[0]), float(default[1]), float(default[2])]
+    return [1.0, 1.0, 1.0]
+
+
+def _scale_vec3_from_task_yaml(scale_val, model_config: dict) -> list[float]:
+    """
+    Resolve scale from task_objects.yml ``scales:`` entry.
+    Supports scalar or per-axis list (e.g. 025_chips-tub ``0``: [0.08, 0.08, 0.04]).
+    """
+    if scale_val is None:
+        return _model_config_scale_vec3(model_config)
+    if isinstance(scale_val, (int, float)):
+        s = float(scale_val)
+        return [s, s, s]
+    if isinstance(scale_val, (list, tuple)):
+        if len(scale_val) == 1:
+            s = float(scale_val[0])
+            return [s, s, s]
+        if len(scale_val) >= 3:
+            return [float(scale_val[0]), float(scale_val[1]), float(scale_val[2])]
+    return _model_config_scale_vec3(model_config)
+
 
 def get_all_cluttered_objects():
     cluttered_objects_info = {}
@@ -167,12 +200,9 @@ def get_obstacle_objects_subset(env_name: str, distribution: str, entities_on_sc
                     obj_scale_entry = scales_cfg.get(model_name)
                     if isinstance(obj_scale_entry, dict):
                         scale_val = obj_scale_entry.get(str(model_id), None)
-                        if scale_val is None:
-                            scale = model_config.get("scale", [1.0, 1.0, 1.0])
-                        else:
-                            scale = [float(scale_val), float(scale_val), float(scale_val)]
+                        scale = _scale_vec3_from_task_yaml(scale_val, model_config)
                     else:
-                        scale = model_config.get("scale", [1.0, 1.0, 1.0])
+                        scale = _scale_vec3_from_task_yaml(None, model_config)
 
                     params[model_id] = {
                         "z_max": (extents[1] + center[1]) * scale[1],
@@ -253,12 +283,9 @@ def get_target_objects_subset(env_name: str, distribution: str):
                 obj_scale_entry = scales_cfg.get(model_name)
                 if isinstance(obj_scale_entry, dict):
                     scale_val = obj_scale_entry.get(str(model_id), None)
-                    if scale_val is None:
-                        scale = model_config.get("scale", [1.0, 1.0, 1.0])
-                    else:
-                        scale = [float(scale_val), float(scale_val), float(scale_val)]
+                    scale = _scale_vec3_from_task_yaml(scale_val, model_config)
                 else:
-                    scale = model_config.get("scale", [1.0, 1.0, 1.0])
+                    scale = _scale_vec3_from_task_yaml(None, model_config)
 
                 params[model_id] = {
                     "z_max": (extents[1] + center[1]) * scale[1],
