@@ -148,6 +148,7 @@ try:
                     hold_vec_weight=self.motion_gen.tensor_args.to_device(constraint_pose),
                 )
                 plan_config.pose_cost_metric = pose_cost_metric
+
             result = self.motion_gen.plan_single(start_joint_states, goal_pose_of_ee, plan_config)
 
             # ------------------------------------------

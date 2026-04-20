@@ -11,6 +11,7 @@ import json
 import transforms3d as t3d
 from collections import OrderedDict
 import torch, random
+import cv2
 
 from .utils import *
 import math
@@ -461,6 +462,87 @@ class Base_Task(gym.Env):
             rgb = self.cameras.get_rgb()
             for camera_name in rgb.keys():
                 pkl_dic["observation"][camera_name].update(rgb[camera_name])
+
+        # Vision perturbation: blur (N1-N5) + pixel shift
+        if getattr(self, 'blur_perturb_enabled', False) or getattr(self, 'pixel_shift_enabled', False):
+            for camera_name in list(pkl_dic["observation"].keys()):
+                if "rgb" not in pkl_dic["observation"][camera_name]:
+                    continue
+                img = pkl_dic["observation"][camera_name]["rgb"].copy()
+                h, w = img.shape[:2]
+
+                if getattr(self, 'blur_perturb_enabled', False) and getattr(self, 'current_noise_type', None):
+                    s = self.current_s * getattr(self, 'blur_strength', 1.0)
+                    noise_type = self.current_noise_type
+
+                    if noise_type == 'motion':
+                        r = max(1, int(s * 15))
+                        sigma = max(0.1, s * 8.0)
+                        angle = np.random.uniform(-30, 30)
+                        ksize = 2 * r + 1
+                        kernel_1d = cv2.getGaussianKernel(ksize, sigma, cv2.CV_32F)
+                        kernel = kernel_1d @ kernel_1d.T
+                        M_k = cv2.getRotationMatrix2D(((ksize - 1) / 2, (ksize - 1) / 2), angle, 1.0)
+                        kernel = cv2.warpAffine(kernel, M_k, (ksize, ksize))
+                        kernel /= kernel.sum()
+                        img = cv2.filter2D(img, -1, kernel)
+
+                    elif noise_type == 'gaussian':
+                        sigma = max(0.1, s * 10.0)
+                        img = cv2.GaussianBlur(img, (0, 0), sigmaX=sigma, sigmaY=sigma)
+
+                    elif noise_type == 'zoom':
+                        smin = 1.00
+                        smax = 1.0 + s * 0.56
+                        step = max(0.005, s * 0.03)
+                        center = (w / 2, h / 2)
+                        accum = np.zeros((h, w, 3), dtype=np.float32)
+                        count = 0.0
+                        scale = smin
+                        while scale <= smax + 1e-6:
+                            M_z = cv2.getRotationMatrix2D(center, 0, scale)
+                            tmp = cv2.warpAffine(img.astype(np.float32), M_z, (w, h),
+                                                 flags=cv2.INTER_LINEAR,
+                                                 borderMode=cv2.BORDER_REFLECT)
+                            accum += tmp
+                            count += 1
+                            scale += step
+                        if count > 0:
+                            img = (accum / count).clip(0, 255).astype(np.uint8)
+
+                    elif noise_type == 'fog':
+                        alpha = s * 1.5
+                        fog_color = np.array([255, 255, 255], dtype=np.float32)
+                        depth_fake = np.ones((h, w), dtype=np.float32) * 3.0
+                        transmission = np.exp(-alpha * depth_fake)
+                        transmission = np.expand_dims(transmission, axis=-1)
+                        img_float = img.astype(np.float32)
+                        img = (img_float * transmission + fog_color * (1 - transmission))
+                        img = img.clip(0, 255).astype(np.uint8)
+
+                    elif noise_type == 'glass':
+                        sigma = s * 2.5
+                        delta = max(1, int(s * 5))
+                        iters = max(1, int(3 - s * 2))
+                        for _ in range(iters):
+                            dx = np.random.uniform(-delta, delta, (h, w)).astype(np.float32)
+                            dy = np.random.uniform(-delta, delta, (h, w)).astype(np.float32)
+                            map_x = np.tile(np.arange(w, dtype=np.float32), (h, 1)) + dx
+                            map_y = np.repeat(np.arange(h, dtype=np.float32)[:, None], w, axis=1) + dy
+                            img = cv2.remap(img, map_x, map_y,
+                                            interpolation=cv2.INTER_LINEAR,
+                                            borderMode=cv2.BORDER_REFLECT)
+                            if sigma > 0.01:
+                                img = cv2.GaussianBlur(img, (0, 0), sigmaX=sigma)
+
+                if getattr(self, 'pixel_shift_enabled', False):
+                    max_s = getattr(self, 'pixel_shift_max', 5) * getattr(self, 'pixel_shift_strength', 1.0)
+                    dx = np.random.uniform(-max_s, max_s)
+                    dy = np.random.uniform(-max_s, max_s)
+                    M_t = np.float32([[1, 0, dx], [0, 1, dy]])
+                    img = cv2.warpAffine(img, M_t, (w, h), borderMode=cv2.BORDER_REFLECT)
+
+                pkl_dic["observation"][camera_name]["rgb"] = img
 
         if self.data_type.get("third_view", False):
             third_view_rgb = self.cameras.get_observer_rgb()

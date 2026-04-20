@@ -25,16 +25,21 @@ bench_root = Path(os.environ["BENCH_ROOT"])
 
 
 def class_decorator(task_name):
+    envs_module = None
     if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
-        module_paths = f"bench_envs.{task_name}"
-    else:
-        module_paths = f"envs.{task_name}"
-    
-    envs_module = importlib.import_module(module_paths)
+        for mod_path in [f"bench_envs.{task_name}", f"bench_envs.study.{task_name}", f"bench_envs.office.{task_name}", f"bench_envs.kitchenl.{task_name}", f"bench_envs.kitchens.{task_name}"]:
+            try:
+                envs_module = importlib.import_module(mod_path)
+                break
+            except ModuleNotFoundError:
+                continue
+    if envs_module is None:
+        envs_module = importlib.import_module(f"envs.{task_name}")
+
     try:
         env_class = getattr(envs_module, task_name)
         return env_class()
-    except (ModuleNotFoundError, AttributeError):
+    except AttributeError:
         raise SystemExit("No such task")
 
 def get_embodiment_config(robot_file):
@@ -139,6 +144,8 @@ def run(TASK_ENV, args):
         while suc_num < args["episode_num"]:
             try:
                 TASK_ENV.setup_demo(now_ep_num=suc_num, seed=epid, **args)
+                if hasattr(TASK_ENV, "_maybe_apply_language_perturbation"):
+                    TASK_ENV._maybe_apply_language_perturbation()
                 TASK_ENV.play_once()
 
                 if TASK_ENV.plan_success and TASK_ENV.check_success():
@@ -166,10 +173,11 @@ def run(TASK_ENV, args):
                     TASK_ENV.viewer.close()
                 time.sleep(0.3)
             except Exception as e:
-                # stack_trace = traceback.format_exc()
+                stack_trace = traceback.format_exc()
                 print(" -------------")
                 print(f"simulate data episode {suc_num} fail! (seed = {epid})")
                 print("Error: ", e)
+                print(stack_trace)
                 print(" -------------")
                 fail_num += 1
                 TASK_ENV.close_env()
@@ -212,9 +220,13 @@ def run(TASK_ENV, args):
             st_idx += 1
 
         for episode_idx in range(st_idx, args["episode_num"]):
+            if exist_hdf5(episode_idx):
+                continue
             print(f"\033[34mTask name: {args['task_name']}\033[0m")
 
             TASK_ENV.setup_demo(now_ep_num=episode_idx, seed=seed_list[episode_idx], **args)
+            if hasattr(TASK_ENV, "_maybe_apply_language_perturbation"):
+                TASK_ENV._maybe_apply_language_perturbation()
 
             traj_data = TASK_ENV.load_tran_data(episode_idx)
             args["left_joint_path"] = traj_data["left_joint_path"]
@@ -231,6 +243,8 @@ def run(TASK_ENV, args):
                 info_db = json.load(file)
 
             info = TASK_ENV.play_once()
+            if info is None:
+                info = getattr(TASK_ENV, "info", None) or {}
             info_db[f"episode_{episode_idx}"] = info
 
             with open(info_file_path, "w", encoding="utf-8") as file:
@@ -239,15 +253,22 @@ def run(TASK_ENV, args):
             TASK_ENV.close_env(clear_cache=((episode_idx + 1) % clear_cache_freq == 0))
             TASK_ENV.merge_pkl_to_hdf5_video()
             TASK_ENV.remove_data_cache()
-            assert TASK_ENV.check_success(), "Collect Error"
+            if not TASK_ENV.check_success():
+                print(f"\033[91mCollect Error on episode {episode_idx} (seed={seed_list[episode_idx]}), removing files\033[0m")
+                for ext_path in [
+                    os.path.join(args["save_path"], "data", f"episode{episode_idx}.hdf5"),
+                    os.path.join(args["save_path"], "video", f"episode{episode_idx}.mp4"),
+                ]:
+                    if os.path.exists(ext_path):
+                        os.remove(ext_path)
+                continue
 
         command = f"cd description && bash gen_episode_instructions.sh {args['task_name']} {args['task_config']} {args['language_num']}"
         os.system(command)
 
 
 if __name__ == "__main__":
-    from test_render import Sapien_TEST
-    Sapien_TEST()
+    pass  # Skip Sapien_TEST — ray tracing uses too much VRAM for CuRobo
 
     import torch.multiprocessing as mp
     mp.set_start_method("spawn", force=True)

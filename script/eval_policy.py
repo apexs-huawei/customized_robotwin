@@ -30,9 +30,15 @@ parent_directory = os.path.dirname(current_file_path)
 
 
 def class_decorator(task_name):
+    envs_module = None
     if os.getenv("ROBOTWIN_BENCH_TASK") == "bench":
-        envs_module = importlib.import_module(f"bench_envs.{task_name}")
-    else:
+        for mod_path in [f"bench_envs.{task_name}", f"bench_envs.study.{task_name}", f"bench_envs.office.{task_name}", f"bench_envs.kitchenl.{task_name}", f"bench_envs.kitchens.{task_name}"]:
+            try:
+                envs_module = importlib.import_module(mod_path)
+                break
+            except ModuleNotFoundError:
+                continue
+    if envs_module is None:
         envs_module = importlib.import_module(f"envs.{task_name}")
     try:
         env_class = getattr(envs_module, task_name)
@@ -268,10 +274,30 @@ def eval_policy(task_name,
         args["render_freq"] = render_freq
 
         TASK_ENV.setup_demo(now_ep_num=now_id, seed=now_seed, is_test=True, **args)
-        episode_info_list = [episode_info["info"]]
-        results = generate_episode_descriptions(args["task_name"], episode_info_list, test_num)
-        instruction = np.random.choice(results[0][instruction_type])
-        TASK_ENV.set_instruction(instruction=instruction)  # set language instruction
+
+        # Language perturbation: use instruction bank if enabled
+        lang_perturb = args.get("domain_randomization", {}).get("language_perturbation", {})
+        if lang_perturb.get("enabled", False) and lang_perturb.get("instruction_bank"):
+            bank_path = lang_perturb["instruction_bank"]
+            if os.path.exists(bank_path):
+                with open(bank_path, "r") as f_bank:
+                    bank = json.load(f_bank)
+                pool = bank.get(args["task_name"], [])
+                if pool:
+                    instruction = np.random.choice(pool)
+                else:
+                    episode_info_list = [episode_info["info"]]
+                    results = generate_episode_descriptions(args["task_name"], episode_info_list, test_num)
+                    instruction = np.random.choice(results[0][instruction_type])
+            else:
+                episode_info_list = [episode_info["info"]]
+                results = generate_episode_descriptions(args["task_name"], episode_info_list, test_num)
+                instruction = np.random.choice(results[0][instruction_type])
+        else:
+            episode_info_list = [episode_info["info"]]
+            results = generate_episode_descriptions(args["task_name"], episode_info_list, test_num)
+            instruction = np.random.choice(results[0][instruction_type])
+        TASK_ENV.set_instruction(instruction=instruction)
 
         if TASK_ENV.eval_video_path is not None:
             ffmpeg = subprocess.Popen(
