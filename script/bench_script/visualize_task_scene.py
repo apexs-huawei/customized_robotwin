@@ -125,7 +125,7 @@ def _extract_task_class(envs_module, task_name):
 def get_env_class(task_name, bench_subdir=None):
     """Load task env class from bench_envs, or envs if not in bench_envs."""
     # Known bench_envs subpackages (office, study, etc.)
-    BENCH_SUBDIRS = ["office", "study"]
+    BENCH_SUBDIRS = ["office", "study", "kitchenl", "kitchens"]
 
     if bench_subdir:
         # Explicit subdir: try only bench_envs.{subdir}.{task_name}
