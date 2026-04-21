@@ -675,6 +675,57 @@ class Base_Task(gym.Env):
             sapien_clear_cache()
         self.close()
 
+    # --- Debug viz: show planner target pose in the viewer -----------------
+    def _debug_show_target(self, pose, arm_tag, success):
+        """Spawn a small sphere at the planner's target pose.
+        Green = plan succeeded, red = plan failed. Only active when the
+        viewer is on (render_freq > 0) so headless collection stays untouched.
+        """
+        if not getattr(self, "render_freq", 0):
+            return
+        try:
+            if isinstance(pose, sapien.Pose):
+                pos = list(pose.p)
+                quat = list(pose.q)
+            else:
+                pos = list(pose[:3])
+                quat = list(pose[3:7]) if len(pose) >= 7 else [1, 0, 0, 0]
+            color = [0.0, 1.0, 0.0, 1.0] if success else [1.0, 0.0, 0.0, 1.0]
+            builder = self.scene.create_actor_builder()
+            try:
+                from sapien.render import RenderMaterial
+                mat = RenderMaterial(base_color=color)
+            except Exception:
+                mat = None
+            if mat is not None:
+                builder.add_sphere_visual(radius=0.025, material=mat)
+            else:
+                builder.add_sphere_visual(radius=0.025, color=color[:3])
+            marker = builder.build_kinematic(name=f"dbg_target_{arm_tag}")
+            marker.set_pose(sapien.Pose(p=pos, q=quat))
+            if not hasattr(self, "_debug_markers"):
+                self._debug_markers = []
+            self._debug_markers.append(marker)
+            tag = "OK" if success else "FAIL"
+            print(f"[dbg target] arm={arm_tag} {tag} p={np.round(pos,4).tolist()} q={np.round(quat,4).tolist()}")
+        except Exception as e:
+            print(f"[dbg target] marker spawn failed: {e}")
+
+    def debug_hold_viewer(self, reason=""):
+        """Freeze the viewer so the user can inspect target markers.
+        Returns only when the user closes the SAPIEN viewer window.
+        """
+        if not getattr(self, "render_freq", 0):
+            return
+        print(f"\n[DEBUG STUCK] {reason}")
+        print("[DEBUG STUCK] Viewer held. Close the SAPIEN window to continue.\n")
+        try:
+            while not self.viewer.closed:
+                self._update_render()
+                self.viewer.render()
+        except KeyboardInterrupt:
+            pass
+
     def _del_eval_video_ffmpeg(self):
         if self.eval_video_ffmpeg:
             self.eval_video_ffmpeg.stdin.close()
@@ -845,7 +896,10 @@ class Base_Task(gym.Env):
             left_result = deepcopy(self.left_joint_path[self.left_cnt])
             self.left_cnt += 1
 
-        if left_result["status"] != "Success":
+        _left_ok = left_result["status"] == "Success"
+        self._debug_show_target(pose, "left", _left_ok)
+        if not _left_ok:
+            self.debug_hold_viewer(f"left arm plan FAILED (status={left_result['status']}) at pose {pose}")
             self.plan_success = False
             return
 
@@ -878,7 +932,10 @@ class Base_Task(gym.Env):
             right_result = deepcopy(self.right_joint_path[self.right_cnt])
             self.right_cnt += 1
 
-        if right_result["status"] != "Success":
+        _right_ok = right_result["status"] == "Success"
+        self._debug_show_target(pose, "right", _right_ok)
+        if not _right_ok:
+            self.debug_hold_viewer(f"right arm plan FAILED (status={right_result['status']}) at pose {pose}")
             self.plan_success = False
             return
 
@@ -922,7 +979,12 @@ class Base_Task(gym.Env):
         try:
             left_success = left_result["status"] == "Success"
             right_success = right_result["status"] == "Success"
+            self._debug_show_target(left_target_pose, "left", left_success)
+            self._debug_show_target(right_target_pose, "right", right_success)
             if not left_success or not right_success:
+                self.debug_hold_viewer(
+                    f"together plan FAILED left_ok={left_success} right_ok={right_success}"
+                )
                 self.plan_success = False
                 # return TODO
         except Exception as e:
