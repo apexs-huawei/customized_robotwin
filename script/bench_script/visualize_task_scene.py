@@ -35,6 +35,8 @@ EXAMPLES:
     # Save RGB on first planning failure (move_step = Nth top-level env.move in play_once)
     python bench_script/visualize_task_scene.py move_books_onto_table bench_demo_clean --bench-subdir study \\
         --rollout --save-plan-fail-dir ./plan_fail_debug --plan-fail-camera head_camera
+    
+    python script/bench_script/visualize_task_scene.py close_fridge bench_demo_randomized --bench-subdir kitchenl --rollout --seed 0 --save-plan-fail-dir ./plan_fail_debug --plan-fail-camera head_camera --no-render --save_data
 
 ARGUMENTS:
     task_name      Task module name from bench_envs (e.g. grab_roller_thing)
@@ -327,8 +329,9 @@ def main():
             print("Scene ready (headless). Press Ctrl+C to exit.")
         else:
             print("Rollout done (headless). Exiting.")
-            env.close_env()
             print(f"Success: {env.check_success()}")
+            if not env.save_data:
+                env.close_env()
             print("Done.")
             return
         try:
